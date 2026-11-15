@@ -813,7 +813,7 @@ class Program
     }
 
     // Walks up from the working directory and the build output to find the package's
-    // Runtime/Models.cs (the harness lives in Tests/SplatterVault.Tests).
+    // Runtime/Models.cs (the harness lives in Tests~/SplatterVault.Tests).
     static string? FindRuntimeModelsFile()
     {
         foreach (var start in new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory })

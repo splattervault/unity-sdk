@@ -9,7 +9,7 @@ Official Unity SDK for creating and managing dedicated game servers through the 
 In Unity: **Window > Package Manager > + > Add package from git URL** and enter:
 
 ```
-https://github.com/ksc4130/splattervault-unity-sdk.git
+https://github.com/splattervault/unity-sdk.git
 ```
 
 Or add directly to `Packages/manifest.json`:
@@ -17,29 +17,41 @@ Or add directly to `Packages/manifest.json`:
 ```json
 {
   "dependencies": {
-    "com.splattervault.sdk": "https://github.com/ksc4130/splattervault-unity-sdk.git#v3.6.0"
+    "com.splattervault.sdk": "https://github.com/splattervault/unity-sdk.git#v3.7.0"
   }
 }
 ```
 
 ### Manual
 
-Copy the `Runtime/` folder into your Unity project's `Assets/SplatterVault/` directory.
+Copy the `Runtime/` folder into your Unity project's `Assets/SplatterVault/` directory, and install the **Newtonsoft Json** package (`com.unity.nuget.newtonsoft-json`) from the Package Manager.
 
 ### Requirements
 
-- Unity 2019.4 or later
-- .NET 4.x or .NET Standard 2.0
-- Newtonsoft.Json (included with Unity 2020+, or install via Package Manager)
+- Unity 2020.2 or later
+- .NET 4.x or .NET Standard 2.0/2.1 API compatibility level
+- Newtonsoft.Json: installed automatically with the package (`com.unity.nuget.newtonsoft-json`)
 - Internet access enabled in Player Settings
+
+## Where Your API Key Lives
+
+**The API key belongs on servers only:** your dedicated server builds, your own backend, or the Unity Editor while you develop. Never put it in a game client build. Anything in a client build (a serialized field, a scene, a prefab, a ScriptableObject, a string in code) can be pulled out by players, and with your key anyone can start and stop your servers and spend your (or your organization's) credits.
+
+- Read the key from an environment variable on the machine that runs the code: `Environment.GetEnvironmentVariable("SV_API_KEY")`.
+- Wrap code that uses it in `#if UNITY_SERVER || UNITY_EDITOR` so it is left out of client builds (all samples do this).
+- Players connect to the servers you start with the address and code you give them; they never need the key.
+- Game clients will sign players in instead of using a key (coming in SDK 4.0).
 
 ## Quick Start
 
 ```csharp
+// Server-side code (dedicated server build or Editor), see "Where Your API Key Lives"
+using System;
 using SplatterVault;
+using SplatterVault.MST; // WaitForServerReady
 
-// 1. Create a client with your API key
-var client = new SplatterVaultClient("sv_your_api_key");
+// 1. Create a client with your API key, read from the environment
+var client = new SplatterVaultClient(Environment.GetEnvironmentVariable("SV_API_KEY"));
 
 // 2. Discover available game options
 var args = await client.GetConfigurableArgsAsync("your_game_key");
@@ -57,16 +69,11 @@ request.AddCustomVariable("-maxPlayers", "10");       // set max players
 GameSession session = await client.CreateCreditSessionAsync(request);
 Debug.Log($"Server starting! Code: {session.code}");
 
-// 4. Wait for server to be ready
-while (session.IsPending())
-{
-    await Task.Delay(5000);
-    session = await client.GetSessionAsync(session.id);
-}
+// 4. Wait until the session is Active: the server is up (throws if the session stops first)
+session = await client.WaitForServerReady(session.id);
 
-// 5. Connect players
-if (session.IsActive())
-    Debug.Log($"Connect to {session.slaveIp}:{session.GetServerPort()}");
+// 5. Tell players where to connect
+Debug.Log($"Connect to {session.slaveIp}:{session.GetServerPort()}");
 
 // 6. Stop when done
 StopSessionResult result = await client.StopCreditSessionAsync(session.id);
@@ -81,25 +88,25 @@ Debug.Log($"Cost: {result.totalCost} credits ({result.totalHours} hours)");
 2. Go to your dashboard and generate an API key
    - **Personal key** (`sv_...`): bills to your personal credits
    - **Organization key** (`sv_org_...`): bills to your org's credits. Create sessions with `CreateCreditSessionAsync`; subscription sessions need a personal key
-3. Find your **game key** in the game configuration section (e.g., `sys_1774636058786_30e0fc4d`)
+3. Set it as the `SV_API_KEY` environment variable on the machines that run your server-side code (see [Where Your API Key Lives](#where-your-api-key-lives))
+4. Find your **game key** in the game configuration section (e.g., `sys_1774636058786_30e0fc4d`)
 
 ### Step 2: Initialize the Client
 
 ```csharp
 using SplatterVault;
 
-// Recommended: CreateAsync auto-resolves org ID for org keys
-var client = await SplatterVaultClient.CreateAsync("sv_your_api_key");
+string apiKey = Environment.GetEnvironmentVariable("SV_API_KEY");
 
-// Organization API key — org ID is auto-resolved, no need to provide it
-var client = await SplatterVaultClient.CreateAsync("sv_org_your_key");
+// Recommended: CreateAsync auto-resolves the org ID for org keys (sv_org_...)
+var client = await SplatterVaultClient.CreateAsync(apiKey);
 
 // Custom API URL (for local development)
-var client = await SplatterVaultClient.CreateAsync("sv_your_key",
+var client = await SplatterVaultClient.CreateAsync(apiKey,
     baseUrl: "http://localhost:3000/rest");
 
 // Manual initialization (if you prefer constructor + explicit org ID)
-var client = new SplatterVaultClient("sv_org_your_key", organizationId: 1);
+var client = new SplatterVaultClient(apiKey, organizationId: 1);
 ```
 
 ### Step 3: Discover Game Options
@@ -235,16 +242,30 @@ if (session.idleTimeoutMinutes == null)
 
 Sessions go through these states: **Scheduled** -> **Pending** -> **Active** -> **Not Active**
 
+"Active" means the server is up. The game may still be loading: `ready` turns true once the game says it is ready for players (its ready signal, or the start of a match).
+
 ```csharp
 var session = await client.GetSessionAsync(sessionId);
 
 if (session.IsPending())
     Debug.Log("Server is provisioning...");
-else if (session.IsActive())
+else if (session.IsActive() && session.IsReady())
     Debug.Log($"Ready! Connect to {session.slaveIp}:{session.GetServerPort()}");
+else if (session.IsActive())
+    Debug.Log("Server is up, game still loading...");
 else if (session.IsStopped())
-    Debug.Log("Session has ended");
+    Debug.Log($"Session has ended ({session.stopReason})");
 ```
+
+Or let the SDK poll for you (`using SplatterVault.MST;`):
+
+```csharp
+// Returns when the session is Active. Throws InvalidOperationException as soon as the session
+// stops (with its stop reason), or TimeoutException if it never becomes Active.
+GameSession ready = await client.WaitForServerReady(sessionId, maxWaitSeconds: 300);
+```
+
+By default `WaitForServerReady` returns as soon as the session is Active. Pass `waitForGameReady: true` to also wait for the game to say it is ready for players (`ready`). Only do that for a game whose ready signal is configured for every mode it runs: a game with no ready signal never reports `ready`, and the call then returns the Active session once its ready deadline (`readyDeadlineAt`, about 5 minutes after the server is up) has passed or when `maxWaitSeconds` runs out. If the API does not report readiness at all (`ready` is null), it returns on Active.
 
 ### Step 6: Stop a Session
 
@@ -269,6 +290,37 @@ Debug.Log($"~{balance.GetBalanceInHours(0.25f):F1} hours at 0.25 credits/min");
 OrgCreditStats orgBalance = await client.GetOrgCreditBalanceAsync();
 Debug.Log($"Org balance: {orgBalance.GetAvailableBalance()}");
 ```
+
+### Server Pools: Claim a Warm Server
+
+A server pool keeps servers of one game already running. Claiming one starts a session on it in seconds instead of booting a new server. Set up pools on your dashboard; the pool fixes the game, region, server size and build.
+
+```csharp
+var claim = new ClaimPoolServerRequest { friendlyName = "Ranked 12", mode = "XBall" };
+claim.AddCustomVariable("-maxPlayers", "10");   // launch-argument overrides, as on CreateSessionRequest
+claim.SetIdleTimeoutMinutes(15);                // optional, 5-1440
+
+try
+{
+    PoolClaimResponse claimed = await client.ClaimPoolServerAsync(poolId, claim);
+    var c = claimed.connection;                 // null only if the server has no address yet
+    Debug.Log($"Session {claimed.sessionId}: connect to {c?.host}:{c?.primaryPort} (code {c?.code})");
+
+    // Optional: wait for the game's ready signal (using SplatterVault.MST;)
+    await client.WaitForServerReady(claimed.sessionId, waitForGameReady: true);
+}
+catch (Exception ex)
+{
+    // 409 when no warm server is free right now: create a session instead, or retry
+    Debug.LogWarning($"Claim failed: {ex.Message}");
+}
+```
+
+- **Who may claim:** the owner of a personal pool; for an organization's pool, an org API key or member with the `org:manage_pools` permission.
+- **Billing:** the pool's servers are billed through the pool, not per session, so stopping a claimed session reports no cost.
+- **Stopping:** `StopCreditSessionAsync(sessionId)` (or `StopSessionAsync(session)`) ends the session and returns the server to its pool. `idleTimeoutMinutes`, `autoDestroyOnProcessExit` and `scheduledEndTime` stop it the same way.
+- **Launch arguments:** values in `customVariables` are always checked against the game's launch-argument schema on a claim, also with the game owner's key. An invalid value fails the claim with 400 and the server stays in the pool.
+- **Connection info:** `connection` holds `host`, `primaryPort`, every player port in `ports`, `code`/`password`, `connectionMode` (`direct_ip`, `launch_url`, `server_browser`, `code_only`), `launchUrl`, `showHost`/`showPassword` and the game's connection `instructions` with the live values filled in.
 
 ## Examples
 
@@ -310,8 +362,8 @@ for (int i = 0; i < 4; i++)
 ### Organization Server Management
 
 ```csharp
-// CreateAsync auto-resolves org ID — no need to provide it
-var client = await SplatterVaultClient.CreateAsync("sv_org_your_key");
+// CreateAsync auto-resolves org ID — no need to provide it (SV_API_KEY holds an sv_org_... key)
+var client = await SplatterVaultClient.CreateAsync(Environment.GetEnvironmentVariable("SV_API_KEY"));
 Debug.Log($"Organization: {client.AuthContext.organizationName}");
 
 // Session creation bills to org credits automatically
@@ -375,27 +427,22 @@ var session = await client.CreateCreditSessionAsync(request);
 
 ### MST Integration
 
-The SDK includes extension methods for Master Server Toolkit:
+With Master Server Toolkit, your **master server** starts game servers on SplatterVault, and each game server registers its own room with the master, as it would on any machine. Pass the master's public address to the game server as launch arguments your game declares:
 
 ```csharp
+// On the MST master server (server-side code)
 using SplatterVault.MST;
 
-// Create server and wait for it to be ready (polls every 5s, up to 5 min)
-MSTServerInfo serverInfo = await client.CreateAndWaitForMSTServer(
-    new CreateSessionRequest { gameKey = "your_game_key" },
-    onProgress: (status) => Debug.Log(status)
-);
+var request = new CreateSessionRequest { gameKey = "your_game_key", friendlyName = roomName };
+request.AddCustomVariable("-mstMasterIp", masterPublicAddress);
+request.AddCustomVariable("-mstMasterPort", "5000");
 
-// Register with MST
-var roomOptions = new RoomOptions
-{
-    Name = serverInfo.serverName,
-    RoomIp = serverInfo.ipAddress,
-    RoomPort = serverInfo.port,
-    MaxPlayers = serverInfo.maxPlayers,
-    Properties = serverInfo.ToMSTProperties()
-};
+// Create the server and wait until it is Active (polls every 5 s, up to 5 min)
+MSTServerInfo serverInfo = await client.CreateAndWaitForMSTServer(request,
+    onProgress: (status) => Debug.Log(status));
 ```
+
+The **MST Spawner** sample (`SplatterVaultMSTSpawner`) wraps this, and can claim warm pool servers first. See [MST_INTEGRATION.md](MST_INTEGRATION.md).
 
 ## API Reference
 
@@ -437,6 +484,7 @@ new SplatterVaultClient(string apiKey, string baseUrl)
 | `UpdateSessionFriendlyNameAsync(session, name)` | `GameSession` | Rename a session |
 | `UpdateSessionScheduleAsync(session, start, end)` | `GameSession` | Update schedule times |
 | `CancelSessionScheduleAsync(session)` | `GameSession` | Cancel scheduled session |
+| `ClaimPoolServerAsync(poolId, request?)` | `PoolClaimResponse` | Claim a warm server from a server pool (see [Server Pools](#server-pools-claim-a-warm-server)) |
 | `GetCreditBalanceAsync()` | `CreditBalance` | Get personal credit balance |
 | `GetCreditStatsAsync()` | `CreditStats` | Get detailed credit stats |
 | `GetSubscriptionAsync()` | `SubscriptionDetails` | Get subscription info |
@@ -445,6 +493,13 @@ new SplatterVaultClient(string apiKey, string baseUrl)
 | `GetOrgSubscriptionAsync(orgId?)` | `OrgSubscriptionInfo` | Get org subscription |
 
 All methods also accept optional `Action<T> onSuccess` and `Action<string> onError` callbacks.
+
+Extension methods in `SplatterVault.MST`:
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `WaitForServerReady(sessionId, maxWaitSeconds = 300, onStatusUpdate = null, waitForGameReady = false)` | `GameSession` | Poll until the session is Active (with `waitForGameReady`, until the game is ready); throws as soon as the session stops (see [Step 5](#step-5-monitor-session-status)) |
+| `CreateAndWaitForMSTServer(request, onProgress)` | `MSTServerInfo` | Create a credit session and wait until it is Active |
 
 ### Models
 
@@ -486,8 +541,29 @@ All methods also accept optional `Action<T> onSuccess` and `Action<string> onErr
 | `idleMonitorState` | `string` | `starting`, `active`, `empty` or `unknown` (null = not monitored) |
 | `idleSince` | `string` | Start of the current no-connection period (ISO 8601, UTC) |
 | `lastPeerSampleAt` | `string` | Last connection check (ISO 8601, UTC) |
+| `ready` | `bool?` | True once the game said it is ready for players. Null when the API does not report readiness |
+| `readyAt` | `string` | When the game first said it was ready (ISO 8601, UTC) |
+| `readyDeadlineAt` | `string` | When the game was expected to be ready by: server up + 5 minutes (ISO 8601, UTC). Recorded only |
 
-**Helpers:** `IsActive()`, `IsPending()`, `IsScheduled()`, `IsStopped()`, `IsIdleTimedOut()`, `GetServerPort()`, `GetScheduledStartTime()`, `GetScheduledEndTime()`, `GetServerStartTime()`, `GetIdleSince()`, `GetLastPeerSampleAt()`
+**Helpers:** `IsActive()`, `IsPending()`, `IsScheduled()`, `IsStopped()`, `IsReady()`, `IsIdleTimedOut()`, `GetServerPort()`, `GetScheduledStartTime()`, `GetScheduledEndTime()`, `GetServerStartTime()`, `GetIdleSince()`, `GetLastPeerSampleAt()`, `GetReadyAt()`, `GetReadyDeadlineAt()`
+
+#### ClaimPoolServerRequest
+| Field | Type | Description |
+|-------|------|-------------|
+| `friendlyName` | `string` | Display name |
+| `mode` | `string` | Game mode (the API uses "default" when omitted) |
+| `customVariables` | `Dictionary<string, object>` | Launch argument overrides (sent as `argOverrides`) |
+| `idleTimeoutMinutes` | `int?` | Stop after this many minutes with no connections (5–1440) |
+| `autoDestroyOnProcessExit` | `bool?` | Stop when the game process exits. Null = the game's default |
+| `scheduledEndTime` | `string` | ISO 8601 auto-stop time |
+
+**Setters:** `SetScheduledEndTime()`, `SetIdleTimeoutMinutes()`, `SetAutoDestroyOnProcessExit()`, `AddCustomVariable()`, `SetCustomVariables()`, `ClearCustomVariables()`
+
+#### PoolClaimResponse
+| Field | Type | Description |
+|-------|------|-------------|
+| `sessionId` | `int` | The new session on the claimed server |
+| `connection` | `SessionConnectionInfo` | How players connect (null if the server has no address yet) |
 
 #### StructuredLaunchArg
 | Field | Type | Description |
@@ -568,13 +644,14 @@ await client.CreateCreditSessionAsync(request,
 | 400 | Invalid request, e.g. `idleTimeoutMinutes` outside 5–1440, stopping a session that has already stopped, or creating a subscription session with an org key |
 | 401 | Invalid or expired API key |
 | 403 | Insufficient credits or permissions |
-| 404 | Session or game config not found |
+| 404 | Session, pool or game config not found |
+| 409 | `ClaimPoolServerAsync`: no warm server free in the pool right now (or the claim is busy, retry) |
 | 500 | Server error (report to support) |
 
 ## Troubleshooting
 
 ### "API key is required"
-Set your API key before creating the client. Don't commit keys to version control.
+The key was empty: set the `SV_API_KEY` environment variable on the machine running the server or the Editor (restart the Editor after setting it). Don't commit keys to version control, and never put them in a game client build.
 
 ### "Game type configuration not found"
 Your `gameKey` doesn't match an active config. Check it on your dashboard.

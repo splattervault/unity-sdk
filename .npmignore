@@ -1,0 +1,16 @@
+# What stays out of the published package (npm pack / npm publish, which OpenUPM uses).
+# Unity warns about any file without a .meta file in an installed package, so repository-only
+# files without one are left out here.
+/CLAUDE.md
+/.gitignore
+
+# npm stops reading .gitignore once this file exists, so its rules are repeated here.
+[Oo]bj/
+[Bb]in/
+*.csproj
+*.sln
+*.suo
+*.user
+*.pidb
+*.booproj
+.vs/

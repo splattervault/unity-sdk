@@ -1,254 +1,50 @@
-# SplatterVault Integration for Existing MST Master
+# SplatterVault Spawner for an MST Master Server
 
-## Quick Start: 3 Steps
+`SplatterVaultMSTSpawner.cs` lets your Master Server Toolkit (MST) master start game servers on SplatterVault instead of on its own machines.
 
-You already have MST Master running. Here's what to change:
+## Where this code runs
 
-### 1. Add SplatterVault Client
+On your **MST master server only** (a dedicated server build, or the Unity Editor while testing). The file is wrapped in `#if UNITY_SERVER || UNITY_EDITOR`, so it is left out of game client builds.
 
-```csharp
-using SplatterVault;
+The SplatterVault API key is read from the `SV_API_KEY` environment variable of the machine that runs the master. Never put the key in a game client build, a serialized field, a scene or a prefab: anyone who pulls it out can start and stop your servers and spend your credits. Game clients will use player sign-in instead (coming in SDK 4.0).
 
-public class YourMasterServer : MonoBehaviour
-{
-    private SplatterVaultClient svClient;
-    
-    void Awake()
-    {
-        svClient = new SplatterVaultClient("sv_your_api_key_here");
-    }
-}
+## How it works
+
+```
+1. Your MST master gets a spawn request
+2. It calls spawner.SpawnAsync(roomName)
+3. The SDK claims a warm server from your pool (if poolId is set), or starts a new server
+   with the master's address as launch arguments (-mstMasterIp / -mstMasterPort by default)
+4. The game server boots and registers its own room with your master, as it would anywhere
+5. SpawnAsync returns the session once it is Active (the server is up; the game may still be loading)
+6. Later, spawner.StopAsync(session) stops it (a pool server goes back to its pool)
 ```
 
-### 2. Replace Your Spawner
+The spawner uses no MST types, so it compiles whether or not MST is installed. Your master's spawn handler calls it.
 
-**Before (your current code):**
-```csharp
-// Your existing spawner that boots local servers
-void SpawnServer(string roomName)
-{
-    // Start local server process
-    ProcessStartInfo startInfo = new ProcessStartInfo();
-    startInfo.FileName = "your-server.exe";
-    Process.Start(startInfo);
-}
-```
+## Setup
 
-**After (using SplatterVault):**
-```csharp
-// Now spawn on SplatterVault's infrastructure
-async void SpawnServer(string roomName)
-{
-    var request = new CreateSessionRequest 
-    { 
-        friendlyName = roomName
-    };
-    request.SetRegion(Region.NYC3);
-    request.SetGameType(GameType.PaintballPlayground);
-    request.SetPaintballMode(PaintballMode.XBall);
-    
-    // Create session - server will auto-start
-    var session = await svClient.CreateCreditSessionAsync(request);
-    
-    // Done! The headless PPVR server is booting and will
-    // register itself with your MST Master automatically
-}
-```
-
-### 3. That's It!
-
-The headless PPVR server running on SplatterVault will:
-- ✅ Boot up (30-60 seconds)
-- ✅ Auto-register with your MST Master
-- ✅ Show up in your server browser
-- ✅ Accept player connections
-
----
-
-## Complete Example
-
-Here's a complete drop-in replacement for a typical MST spawner:
-
-```csharp
-using System;
-using UnityEngine;
-using SplatterVault;
-using Barebones.MasterServer; // Your existing MST
-
-public class SplatterVaultMSTSpawner : MonoBehaviour
-{
-    [SerializeField] private string apiKey = "sv_your_api_key_here";
-    [SerializeField] private Region region = Region.NYC3;
-    
-    private SplatterVaultClient client;
-    
-    void Awake()
-    {
-        client = new SplatterVaultClient(apiKey);
-    }
-    
-    // This is called by your MST Master when it needs a server
-    public async void OnSpawnRequest(SpawnRequest request)
-    {
-        try
-        {
-            // Create the SplatterVault session
-            var svRequest = new CreateSessionRequest 
-            {
-                friendlyName = request.RoomName ?? "Game Server"
-            };
-            svRequest.SetRegion(region);
-            svRequest.SetGameType(GameType.PaintballPlayground);
-            svRequest.SetPaintballMode(PaintballMode.XBall);
-            
-            var session = await client.CreateCreditSessionAsync(svRequest);
-            
-            // Notify MST that spawn succeeded
-            request.OnSpawnSuccess(session.code);
-            
-            Debug.Log($"Spawned server: {session.code}");
-            // The headless server will register with MST automatically
-        }
-        catch (Exception ex)
-        {
-            request.OnSpawnFailed(ex.Message);
-            Debug.LogError($"Spawn failed: {ex.Message}");
-        }
-    }
-    
-    // Called when server should be stopped
-    public async void OnKillRequest(string serverCode)
-    {
-        try
-        {
-            // Find the session
-            var sessions = await client.ListSessionsAsync();
-            var session = sessions.Find(s => s.code == serverCode);
-            
-            if (session != null)
-            {
-                await client.StopSessionAsync(session.id);
-                Debug.Log($"Stopped server: {serverCode}");
-            }
-        }
-        catch (Exception ex)
-        {
-            Debug.LogError($"Stop failed: {ex.Message}");
-        }
-    }
-}
-```
-
----
-
-## Game Modes
-
-All PPVR game modes supported:
-
-```csharp
-request.SetPaintballMode(PaintballMode.XBall);        // XBall competitive
-request.SetPaintballMode(PaintballMode.NXL);          // Pubs
-request.SetPaintballMode(PaintballMode.KillConfirmed); // TAGS
-request.SetPaintballMode(PaintballMode.OneVOne);      // 1v1
-request.SetPaintballMode(PaintballMode.ESPN);         // 3v3
-```
+1. Import this sample and add `SplatterVaultMSTSpawner` to a GameObject in your master server scene.
+2. Set **Game Key** (from your SplatterVault dashboard), **Region**, and **Master Public Address** / **Master Port**.
+3. Make sure your game's SplatterVault game config declares the launch arguments named in **Master Ip Flag** and **Master Port Flag**. Flags the game does not declare are ignored.
+4. Optional: set **Pool Id** to claim warm servers from a server pool. If the pool has no free server, the spawner starts a new one.
+5. Set `SV_API_KEY` on the master's machine. With an organization key (`sv_org_...`), pool claims need the `org:manage_pools` permission.
 
 ## Regions
 
-Available regions (18):
-
-```csharp
-// US East
-Region.NYC1  // New York (Jersey City)
-Region.NYC3  // New York (North Bergen) — default
-Region.ATL1  // Atlanta
-Region.RIC1  // Richmond
-Region.TOR1  // Toronto
-
-// US West
-Region.SFO2  // San Francisco (Santa Clara)
-Region.SFO3  // San Francisco (Santa Clara)
-
-// Europe
-Region.LON1  // London
-Region.AMS3  // Amsterdam
-Region.FRA1  // Frankfurt
-
-// Asia-Pacific
-Region.SGP1  // Singapore
-Region.BLR1  // Bangalore
-Region.SYD1  // Sydney
-
-// US Central
-Region.MKC1  // Kansas City
-
-// Vultr (only where the platform has switched the city on for your game)
-Region.VDFW  // Dallas, TX
-Region.VORD  // Chicago, IL
-Region.VMIA  // Miami, FL
-Region.VLAX  // Los Angeles, CA
-```
+**Region** takes any `Region` value (18): the DigitalOcean regions `NYC1`, `NYC3`, `ATL1`, `RIC1`, `TOR1`, `SFO2`, `SFO3`, `LON1`, `AMS3`, `FRA1`, `SGP1`, `BLR1`, `SYD1` and `MKC1` (Kansas City), and the Vultr cities `VDFW` (Dallas, TX), `VORD` (Chicago, IL), `VMIA` (Miami, FL) and `VLAX` (Los Angeles, CA). It is used when the spawner starts a new server; a claimed pool server runs where its pool is.
 
 The Vultr regions (`VDFW`, `VORD`, `VMIA`, `VLAX`) only work where the platform has switched that Vultr city on for your game; otherwise the API normally refuses the create with a 400 error. You get one only by asking for it: a DigitalOcean region never falls back to Vultr, though a Vultr city you ask for can fall back to another Vultr city or a nearby DigitalOcean region.
 
----
-
-## How It Works
-
-```
-1. Your MST Master calls SpawnServer()
-   ↓
-2. SDK creates session on SplatterVault API
-   ↓
-3. SplatterVault boots headless PPVR server
-   (takes 30-60 seconds)
-   ↓
-4. Headless server auto-registers with your MST Master
-   ↓
-5. Players see server in your matchmaking
-   ↓
-6. Players connect through MST
-   ↓
-7. Game runs on SplatterVault infrastructure
-```
-
-**You don't change anything else!** Your existing:
-- MST Master stays the same
-- Matchmaking stays the same  
-- Player connections stay the same
-- Room management stays the same
-
-You just swap the spawner to use SplatterVault's infrastructure instead of local servers.
-
----
-
-## Testing
+## Example
 
 ```csharp
-[ContextMenu("Test Spawn")]
-async void TestSpawn()
-{
-    var request = new CreateSessionRequest { friendlyName = "Test" };
-    request.SetRegion(Region.NYC3);
-    request.SetGameType(GameType.PaintballPlayground);
-    request.SetPaintballMode(PaintballMode.XBall);
-    
-    var session = await client.CreateCreditSessionAsync(request);
-    Debug.Log($"Server code: {session.code}");
-    Debug.Log("Wait 30-60s for it to register with your MST Master");
-}
+// In your master server's spawn handler
+GameSession session = await spawner.SpawnAsync("Ranked room 12");
+Debug.Log($"Room server {session.code} at {session.slaveIp}:{session.GetServerPort()}");
+
+// When the room is done
+await spawner.StopAsync(session);
 ```
 
----
-
-## That's All!
-
-**3 lines of code** replaces your local spawner with SplatterVault:
-
-```csharp
-var request = new CreateSessionRequest { ... };
-request.SetPaintballMode(PaintballMode.XBall);
-var session = await svClient.CreateCreditSessionAsync(request);
-```
-
-The headless server handles everything else automatically.
+`SpawnAsync` throws when the server stops before it is Active, or is not Active within 5 minutes.

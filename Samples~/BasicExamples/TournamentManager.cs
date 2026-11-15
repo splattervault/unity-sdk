@@ -1,17 +1,33 @@
+// SERVER / TOOLS CODE ONLY.
+// This sample schedules and stops servers with your SplatterVault API key, so it is compiled only into the
+// Unity Editor and dedicated server builds (UNITY_SERVER). Never ship the key in a game client build:
+// anyone who pulls it out of the build can start and stop your servers and spend your (or your
+// organization's) credits. Game clients will use player sign-in instead (coming in SDK 4.0).
+#if UNITY_SERVER || UNITY_EDITOR
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using UnityEngine;
 using SplatterVault;
 
 /// <summary>
 /// Advanced example showing tournament session management
-/// Demonstrates scheduling, session monitoring, and bracket management
+/// Demonstrates scheduling, session monitoring, and bracket management.
+/// The API key is read from the SV_API_KEY environment variable of the machine running
+/// the Editor or the server; it is never stored in a serialized field, scene or prefab.
 /// </summary>
 public class TournamentManager : MonoBehaviour
 {
+    private const string ApiKeyEnvVar = "SV_API_KEY";
+
     [Header("Configuration")]
-    [SerializeField] private string apiKey = "sv_your_api_key_here";
-    
+    [Tooltip("Game config key from your SplatterVault dashboard")]
+    [SerializeField] private string gameKey = "your_game_key_here";
+    [SerializeField] private Region region = Region.NYC3;
+
+    [Tooltip("Credits per minute of your server size (see your dashboard); used for the balance check")]
+    [SerializeField] private float creditsPerMinute = 0.25f;
+
     [Header("Tournament Settings")]
     [SerializeField] private int numberOfMatches = 4;
     [SerializeField] private int matchDurationMinutes = 30;
@@ -26,9 +42,10 @@ public class TournamentManager : MonoBehaviour
 
     void Start()
     {
-        if (string.IsNullOrEmpty(apiKey) || apiKey == "sv_your_api_key_here")
+        string apiKey = Environment.GetEnvironmentVariable(ApiKeyEnvVar);
+        if (string.IsNullOrEmpty(apiKey))
         {
-            Debug.LogError("Please set your API key!");
+            Debug.LogError($"Set the {ApiKeyEnvVar} environment variable (sv_... or sv_org_...) before starting the Editor or the server.");
             return;
         }
 
@@ -50,11 +67,11 @@ public class TournamentManager : MonoBehaviour
         {
             // Check if we have enough credits
             var balance = await client.GetCreditBalanceAsync();
-            int requiredCredits = numberOfMatches * matchDurationMinutes;
-            
-            if (!balance.HasEnoughCredits(requiredCredits))
+            int totalMinutes = numberOfMatches * matchDurationMinutes;
+
+            if (!balance.HasEnoughCredits(totalMinutes, creditsPerMinute))
             {
-                Debug.LogError($"Insufficient credits! Need {requiredCredits}, have {balance.balance}");
+                Debug.LogError($"Insufficient credits! Need {totalMinutes * creditsPerMinute} for {totalMinutes} minutes, have {balance.GetAvailableBalance()}");
                 return;
             }
 
@@ -69,10 +86,10 @@ public class TournamentManager : MonoBehaviour
 
                 var request = new CreateSessionRequest
                 {
-                    region = "NYC3",
-                    gameKey = "your_game_key_here",
+                    gameKey = this.gameKey,
                     friendlyName = $"Tournament Match {i + 1}"
                 };
+                request.SetRegion(region);
 
                 request.SetScheduledStartTime(matchStart);
                 request.SetScheduledEndTime(matchEnd);
@@ -94,7 +111,7 @@ public class TournamentManager : MonoBehaviour
                 }
 
                 // Small delay between requests
-                await System.Threading.Tasks.Task.Delay(500);
+                await Task.Delay(500);
             }
 
             Debug.Log($"✓ Tournament scheduling complete! {scheduledMatches} matches scheduled.");
@@ -161,7 +178,7 @@ public class TournamentManager : MonoBehaviour
     /// <summary>
     /// Create a single match with custom settings
     /// </summary>
-    public async void CreateCustomMatch(string matchName, DateTime startTime, int durationMinutes)
+    public async Task CreateCustomMatchAsync(string matchName, DateTime startTime, int durationMinutes)
     {
         if (client == null)
         {
@@ -173,10 +190,10 @@ public class TournamentManager : MonoBehaviour
         {
             var request = new CreateSessionRequest
             {
-                region = "NYC3",
-                gameKey = "your_game_key_here",
+                gameKey = this.gameKey,
                 friendlyName = matchName
             };
+            request.SetRegion(region);
 
             request.SetScheduledStartTime(startTime);
             request.SetScheduledEndTime(startTime.AddMinutes(durationMinutes));
@@ -220,7 +237,7 @@ public class TournamentManager : MonoBehaviour
                 Debug.LogError($"  ✗ Failed to stop {session.friendlyName}: {ex.Message}");
             }
 
-            await System.Threading.Tasks.Task.Delay(250);
+            await Task.Delay(250);
         }
 
         Debug.Log($"✓ Stopped {stopped}/{tournamentSessions.Count} matches");
@@ -260,16 +277,17 @@ public class TournamentManager : MonoBehaviour
         DateTime now = DateTime.UtcNow;
         
         // Quarterfinals (2 matches, parallel)
-        await CreateCustomMatch("Quarterfinal 1", now.AddHours(1), 30);
-        await CreateCustomMatch("Quarterfinal 2", now.AddHours(1), 30);
+        await CreateCustomMatchAsync("Quarterfinal 1", now.AddHours(1), 30);
+        await CreateCustomMatchAsync("Quarterfinal 2", now.AddHours(1), 30);
 
         // Semifinals (1 hour after quarterfinals)
-        await CreateCustomMatch("Semifinal", now.AddHours(2), 30);
+        await CreateCustomMatchAsync("Semifinal", now.AddHours(2), 30);
 
         // Finals (1 hour after semifinals)
-        await CreateCustomMatch("Championship Finals", now.AddHours(3), 45);
+        await CreateCustomMatchAsync("Championship Finals", now.AddHours(3), 45);
 
         Debug.Log("✓ Championship bracket scheduled!");
         PrintMatchCodes();
     }
 }
+#endif

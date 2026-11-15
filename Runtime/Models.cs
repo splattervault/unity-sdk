@@ -277,6 +277,27 @@ namespace SplatterVault
         public string idleMonitorState;
 
         /// <summary>
+        /// True once the game server has said it is ready for players (the game's ready signal, or the
+        /// start of a match). It stays true after the session stops. Null when the API does not report
+        /// readiness (older servers). A game with no ready signal configured never turns ready, so do not
+        /// wait on this alone; see <see cref="readyDeadlineAt"/>.
+        /// </summary>
+        public bool? ready;
+
+        /// <summary>
+        /// When the game server first said it was ready for players (ISO 8601, UTC). Null until then.
+        /// Use <see cref="GetReadyAt"/> for a DateTime.
+        /// </summary>
+        public string readyAt;
+
+        /// <summary>
+        /// When the game server is expected to be ready by: the moment its server was up (registration, or
+        /// the claim of a pool server) plus 5 minutes (ISO 8601, UTC). Null until the server is up. The
+        /// platform only records it; nothing stops a session that misses it.
+        /// </summary>
+        public string readyDeadlineAt;
+
+        /// <summary>
         /// Server size details (populated when API includes the relation)
         /// </summary>
         public ServerSizeInfo serverSize;
@@ -308,6 +329,22 @@ namespace SplatterVault
         /// When the server last reported connection activity, as a UTC DateTime, or null.
         /// </summary>
         public DateTime? GetLastPeerSampleAt() => ParseUtcTimestamp(lastPeerSampleAt);
+
+        /// <summary>
+        /// When the game server first said it was ready, as a UTC DateTime, or null.
+        /// </summary>
+        public DateTime? GetReadyAt() => ParseUtcTimestamp(readyAt);
+
+        /// <summary>
+        /// When the game server is expected to be ready by, as a UTC DateTime, or null.
+        /// </summary>
+        public DateTime? GetReadyDeadlineAt() => ParseUtcTimestamp(readyDeadlineAt);
+
+        /// <summary>
+        /// True when the API reports that the game server has said it is ready for players.
+        /// False while it has not, and when the API does not report readiness (<see cref="ready"/> is null).
+        /// </summary>
+        public bool IsReady() => ready == true;
 
         public bool IsActive() => status == "Active";
         public bool IsPending() => status == "Pending";
@@ -506,6 +543,8 @@ namespace SplatterVault
         public int id;
         public string tier;
         public string status;
+        /// <summary>Never sent by the API, so always null. Kept so existing code compiles; use <see cref="periodEnd"/>.</summary>
+        [Obsolete("The API never sends periodStart, so it is always null. Use periodEnd.")]
         public string periodStart;
         public string periodEnd;
         public int monthlyCredits;
@@ -535,24 +574,69 @@ namespace SplatterVault
     public class OrgCreditStats
     {
         public float balance;
+        /// <summary>
+        /// Credits the organization can spend now, as the API works it out: subscription credits are left out while
+        /// they are frozen. Null only on an API too old to send it. <see cref="GetAvailableBalance"/> reads this.
+        /// </summary>
+        public float? availableBalance;
         public float subscriptionBalance;
         public float adHocBalance;
+        /// <summary>True while the subscription credits cannot be spent (for example, the subscription payment failed).</summary>
+        public bool subscriptionCreditsFrozen;
         public float totalPurchased;
         public float totalUsed;
+        /// <summary>Whether the organization has a subscription (auto-buy then buys the subscriber pack).</summary>
+        public bool hasSubscription;
         public bool autoBuyEnabled;
         public float? autoBuyThreshold;
+        /// <summary>The pack auto-buy purchases when the balance drops to <see cref="autoBuyThreshold"/>.</summary>
+        public AutoBuyPack autoBuyPack;
+        /// <summary>
+        /// The API never sent this field: it sends <see cref="autoBuyPack"/>. The client fills it from
+        /// <c>autoBuyPack.credits</c> after reading, so existing code keeps working.
+        /// </summary>
+        [Obsolete("The API sends autoBuyPack ({ credits, price }); use autoBuyPack.credits.")]
         public float? autoBuyCreditAmount;
 
+        /// <summary>
+        /// Credits the organization can spend now. Uses the API's <see cref="availableBalance"/>; on an older API
+        /// it leaves out frozen subscription credits the same way.
+        /// </summary>
         public float GetAvailableBalance()
         {
+            if (availableBalance.HasValue)
+                return availableBalance.Value;
+            if (subscriptionCreditsFrozen)
+                return adHocBalance;
             return subscriptionBalance + adHocBalance;
         }
+
+        /// <summary>Fills the obsolete fields from the ones the API sends. Called by the client after reading.</summary>
+        internal void FillLegacyFields()
+        {
+#pragma warning disable CS0618 // autoBuyCreditAmount is obsolete, and filled here for code that still reads it
+            if (autoBuyCreditAmount == null && autoBuyPack != null)
+                autoBuyCreditAmount = autoBuyPack.credits;
+#pragma warning restore CS0618
+        }
+    }
+
+    /// <summary>The credit pack that auto-buy purchases.</summary>
+    [Serializable]
+    public class AutoBuyPack
+    {
+        /// <summary>Credits in the pack.</summary>
+        public float credits;
+        /// <summary>Price in US dollars.</summary>
+        public float price;
     }
 
     [Serializable]
     public class OrgSubscriptionInfo
     {
+        /// <summary>The active subscription, else the newest one; null when the organization never had one.</summary>
         public Subscription current;
+        /// <summary>All of the organization's subscriptions, newest first.</summary>
         public List<Subscription> all;
     }
 
@@ -561,6 +645,175 @@ namespace SplatterVault
     {
         public string message;
         public GameSession session;
+    }
+
+    /// <summary>
+    /// Request for <see cref="SplatterVaultClient.ClaimPoolServerAsync"/> (POST /server-pools/{id}/claim).
+    /// Every field is optional: an empty request claims a server with the pool's own settings.
+    /// The pool fixes the game, region, server size and build, so only these per-session settings can be set.
+    /// </summary>
+    [Serializable]
+    public class ClaimPoolServerRequest
+    {
+        /// <summary>Display name for the new session.</summary>
+        public string friendlyName;
+
+        /// <summary>Game mode handed to the server. The API uses "default" when this is left out.</summary>
+        public string mode;
+
+        /// <summary>
+        /// Launch argument overrides, keyed by the arg flag (e.g. "-maxPlayers"), the same keys as
+        /// <see cref="CreateSessionRequest.customVariables"/>. Sent to the API as "argOverrides".
+        /// On a claim, values are always checked against the game's launch-argument schema, also with the
+        /// game owner's key; an invalid value fails the claim with 400 and the server goes back to the pool.
+        /// </summary>
+        [JsonProperty("argOverrides")]
+        public Dictionary<string, object> customVariables;
+
+        /// <summary>
+        /// Stop the session after this many minutes with no network connections (5-1440); the server then
+        /// goes back to its pool. Null = never idle-stopped. Any other value fails the claim with 400.
+        /// </summary>
+        [JsonProperty("idleTimeoutMinutes", NullValueHandling = NullValueHandling.Ignore)]
+        public int? idleTimeoutMinutes;
+
+        /// <summary>
+        /// Stop the session when the game server process exits. Null = the game's default.
+        /// </summary>
+        [JsonProperty("autoDestroyOnProcessExit", NullValueHandling = NullValueHandling.Ignore)]
+        public bool? autoDestroyOnProcessExit;
+
+        /// <summary>Auto-stop time (ISO 8601). Use <see cref="SetScheduledEndTime"/>.</summary>
+        public string scheduledEndTime;
+
+        /// <summary>Set the auto-stop time from a DateTime.</summary>
+        public void SetScheduledEndTime(DateTime dateTime)
+        {
+            scheduledEndTime = dateTime.ToUniversalTime().ToString("o", CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>Stop the session after this many minutes with no connections (5-1440).</summary>
+        public void SetIdleTimeoutMinutes(int minutes)
+        {
+            idleTimeoutMinutes = minutes;
+        }
+
+        /// <summary>Stop (true) or keep (false) the session when the game process exits.</summary>
+        public void SetAutoDestroyOnProcessExit(bool value)
+        {
+            autoDestroyOnProcessExit = value;
+        }
+
+        /// <summary>Add a launch argument override (see <see cref="customVariables"/>).</summary>
+        public void AddCustomVariable(string flag, object value)
+        {
+            if (customVariables == null)
+                customVariables = new Dictionary<string, object>();
+            customVariables[flag] = value;
+        }
+
+        /// <summary>Set all launch argument overrides at once.</summary>
+        public void SetCustomVariables(Dictionary<string, object> variables)
+        {
+            customVariables = variables;
+        }
+
+        /// <summary>Remove all launch argument overrides.</summary>
+        public void ClearCustomVariables()
+        {
+            customVariables = null;
+        }
+    }
+
+    /// <summary>
+    /// Answer from POST /server-pools/{id}/claim: the new session bound to a warm pool server, and how
+    /// players connect to it.
+    /// </summary>
+    [Serializable]
+    public class PoolClaimResponse
+    {
+        /// <summary>
+        /// The new session. Use it with GetSessionAsync, WaitForServerReady (SplatterVault.MST) and
+        /// StopCreditSessionAsync; stopping it returns the server to its pool.
+        /// </summary>
+        public int sessionId;
+
+        /// <summary>How players connect. Null when the server has no address yet.</summary>
+        public SessionConnectionInfo connection;
+    }
+
+    /// <summary>
+    /// Player-facing connection details for a session, as the API builds them for the website's
+    /// connection card.
+    /// </summary>
+    [Serializable]
+    public class SessionConnectionInfo
+    {
+        /// <summary>Address players connect to (host name or IP).</summary>
+        public string host;
+
+        /// <summary>The main game port: the port with id "game", else the first listed port.</summary>
+        public int? primaryPort;
+
+        /// <summary>Every port the game shows to players.</summary>
+        public List<SessionConnectionPort> ports;
+
+        /// <summary>Password players type to join (the session code), or null.</summary>
+        public string password;
+
+        /// <summary>Game build version, when known.</summary>
+        public string version;
+
+        /// <summary>Platform hint from the game's connection instructions, when set.</summary>
+        public string platform;
+
+        /// <summary>
+        /// How players join: "direct_ip", "launch_url", "server_browser" or "code_only".
+        /// </summary>
+        public string connectionMode;
+
+        /// <summary>Deep link that launches the game client straight into this server, or null.</summary>
+        public string launchUrl;
+
+        /// <summary>Whether to show host and port to players.</summary>
+        public bool showHost;
+
+        /// <summary>Whether to show the password or code to players.</summary>
+        public bool showPassword;
+
+        /// <summary>Session join code.</summary>
+        public string code;
+
+        /// <summary>Server name, for games where players find the server in an in-game list.</summary>
+        public string serverName;
+
+        /// <summary>The game's connection instructions with live values filled in, or null.</summary>
+        public SessionConnectionInstructions instructions;
+    }
+
+    /// <summary>
+    /// One player-visible port of a session.
+    /// </summary>
+    [Serializable]
+    public class SessionConnectionPort
+    {
+        /// <summary>Port id from the game config, e.g. "game" or "query".</summary>
+        public string id;
+        public string label;
+        public int port;
+
+        /// <summary>"tcp", "udp", "both", or null when the game does not say.</summary>
+        public string protocol;
+    }
+
+    /// <summary>
+    /// Connection instructions for players.
+    /// </summary>
+    [Serializable]
+    public class SessionConnectionInstructions
+    {
+        public string summary;
+        public List<string> steps;
     }
 
     /// <summary>

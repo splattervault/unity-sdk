@@ -5,6 +5,42 @@ All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.7.0] - 2026-11-15
+
+### Security
+- **Your API key belongs on servers only.** Every sample now reads the key from the `SV_API_KEY` environment variable and is compiled only into the Unity Editor and dedicated server builds (`#if UNITY_SERVER || UNITY_EDITOR`). Until now every sample kept the key in an Inspector field, which is saved into scenes and prefabs and ships inside the game build: anyone who pulls it out can start and stop your servers and spend your (or your organization's) credits. If you copied a sample into a game client, take the key out and replace it on your dashboard. Game clients will sign players in instead (SDK 4.0).
+- README and INSTALLATION no longer suggest keeping the key in a `[SerializeField]` field or a ScriptableObject.
+
+### Added
+- `ClaimPoolServerAsync(poolId, request, onSuccess, onError)`: claim a warm server from one of your server pools and start a session on it (`POST /server-pools/{id}/claim`). Much faster than creating a session. Returns `PoolClaimResponse` with `sessionId` and `connection` (how players connect). Stopping the session (`StopCreditSessionAsync`) returns the server to its pool. Fails with 409 when no warm server is free. An organization key needs the `org:manage_pools` permission.
+- `ClaimPoolServerRequest`: `friendlyName`, `mode`, `customVariables` (launch-argument overrides, sent as `argOverrides`), `idleTimeoutMinutes`, `autoDestroyOnProcessExit`, `scheduledEndTime`, with the same setters as `CreateSessionRequest`. All optional. On a claim, launch-argument values are always checked against the game's schema, also with the game owner's key.
+- `SessionConnectionInfo`, `SessionConnectionPort`, `SessionConnectionInstructions`: host, main port, all player ports, join code, connection mode, launch link and the game's connection steps.
+- `GameSession.ready`, `readyAt`, `readyDeadlineAt` with `IsReady()`, `GetReadyAt()` and `GetReadyDeadlineAt()`: whether, and when, the game server said it is ready for players. `ready` is null on an older API.
+- `WaitForServerReady` has a new last parameter, `waitForGameReady` (default `false`, which keeps the 3.6 behaviour: return as soon as the session is Active). Pass `true` to also wait, once Active, for the game to say it is ready (`ready`). A game with no ready signal for the mode it runs never says so: the call then returns the Active session once its ready deadline has passed (about 5 minutes after the server is up) or when `maxWaitSeconds` runs out. Existing calls compile and behave unchanged.
+- `OrgCreditStats.availableBalance`, `subscriptionCreditsFrozen`, `hasSubscription` and `autoBuyPack` (`AutoBuyPack { credits, price }`): fields the API already sent that the SDK did not read.
+- `package.json` now depends on `com.unity.nuget.newtonsoft-json` 3.0.2, so Newtonsoft.Json is installed with the SDK. If your project already has a newer version, Unity keeps the newer one.
+
+### Fixed
+- `WaitForServerReady` (and `CreateAndWaitForMSTServer`) kept polling for the full 5 minutes when a server failed: it looked for "Failed" and "Error" statuses that the API never sends, and its own catch swallowed the error. It now stops as soon as the session is "Not Active" and throws `InvalidOperationException` with the stop reason. A failing status request is retried up to 3 times in a row and then thrown, instead of being hidden until the timeout.
+- `GetOrgSubscriptionAsync` threw with an organization key whose org ID was not resolved (a client made with `new SplatterVaultClient(key)` instead of `CreateAsync`). That path reads `GET /org/subscription`, which answers a plain list, and the SDK expected `{ current, all }`. It now reads either answer and sets `current` the way the server does: the active subscription, else the newest.
+- `OrgCreditStats.GetAvailableBalance()` counted subscription credits while they were frozen, so an organization could look able to pay when it was not. It now returns the API's `availableBalance`, which leaves frozen credits out (on an API that does not send it, the SDK leaves them out itself, as `CreditBalance.GetAvailableBalance()` already did).
+- The Basic Examples sample did not compile: `TournamentManager` called `HasEnoughCredits` with one argument and awaited `async void` methods.
+- `package.json` claimed Unity 2019.4, but the SDK uses `UnityWebRequest.Result`, which needs Unity 2020.2.
+
+### Changed
+- Minimum Unity version is now 2020.2.
+- The MST sample is replaced by `SplatterVaultMSTSpawner`, a small server-side spawner for an MST master server: it starts a server (or claims one from a pool) with the master's address as launch arguments, and the game server registers its own room. The sample is now called "MST Spawner".
+- The .NET test harness moved from `Tests/` to `Tests~/`. Unity skips folders whose name ends in `~`, so the harness is not imported into your project. A new `.npmignore` leaves the repository-only `CLAUDE.md` (which has no `.meta` file) out of the registry package. Installing from a registry (OpenUPM) therefore no longer warns about files without `.meta` files. A Git URL install still contains `CLAUDE.md`; Unity's warning about it is harmless.
+- The repository URL is the same everywhere: `https://github.com/splattervault/unity-sdk`.
+
+### Deprecated
+- `OrgCreditStats.autoBuyCreditAmount`: the API never sent it (it sends `autoBuyPack`), so it was always null. The client now fills it from `autoBuyPack.credits`; use `autoBuyPack` instead.
+- `Subscription.periodStart`: the API never sends it, so it is always null. Use `periodEnd`.
+
+### Removed
+- MST samples `MSTIntegrationExample`, `SplatterVaultMSTBridge` and `SplatterVaultSessionManager`: every MST call in them was commented out, they used the old `Barebones` namespaces, and they registered rooms from the spawning side, which is not how MST rooms work.
+- The Photon Bolt sample. It was never listed in `package.json`, did not compile, and created servers from the game client, which needs the API key inside the client build.
+
 ## [3.6.0] - 2026-11-14
 
 ### Added

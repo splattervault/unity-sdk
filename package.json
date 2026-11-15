@@ -1,9 +1,9 @@
 {
   "name": "com.splattervault.sdk",
-  "version": "3.6.0",
+  "version": "3.7.0",
   "displayName": "SplatterVault SDK",
   "description": "Official Unity SDK for the SplatterVault game session management API. Create, manage, and monitor dedicated game servers programmatically. Includes Master Server Toolkit integration.",
-  "unity": "2019.4",
+  "unity": "2020.2",
   "keywords": [
     "splattervault",
     "api",
@@ -24,16 +24,18 @@
     "url": "https://github.com/splattervault/unity-sdk.git"
   },
   "license": "MIT",
-  "dependencies": {},
+  "dependencies": {
+    "com.unity.nuget.newtonsoft-json": "3.0.2"
+  },
   "samples": [
     {
       "displayName": "Basic Examples",
-      "description": "SimpleSessionManager and TournamentManager examples",
+      "description": "Server-side session management: SimpleSessionManager and TournamentManager (Editor and dedicated server builds only; API key from an environment variable)",
       "path": "Samples~/BasicExamples"
     },
     {
-      "displayName": "MST Integration",
-      "description": "Master Server Toolkit integration examples and bridge component",
+      "displayName": "MST Spawner",
+      "description": "Server-side spawner for a Master Server Toolkit master server: starts or claims SplatterVault servers that register their own rooms (Editor and dedicated server builds only)",
       "path": "Samples~/MSTIntegration"
     }
   ]

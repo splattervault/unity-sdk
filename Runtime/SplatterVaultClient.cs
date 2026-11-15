@@ -511,6 +511,48 @@ namespace SplatterVault
 
         #endregion
 
+        #region Server Pools
+
+        /// <summary>
+        /// Claim a warm server from one of your server pools and start a session on it
+        /// (POST /server-pools/{poolId}/claim). Much faster than creating a session, because the
+        /// server is already running.
+        ///
+        /// Who may claim: the owner of a personal pool, or for an organization's pool an org API key or
+        /// member with the org:manage_pools permission. The session is billed through the pool, not per
+        /// session, so stopping it reports no cost; stopping it (StopCreditSessionAsync) returns the
+        /// server to the pool.
+        ///
+        /// Fails with 409 when the pool has no warm server free right now (create a session instead,
+        /// or retry), and with 400 when the pool is not active or an override is invalid.
+        /// </summary>
+        /// <param name="poolId">ID of the server pool to claim from (see your dashboard).</param>
+        /// <param name="request">Optional per-session settings; null claims with the pool's own settings.</param>
+        /// <param name="onSuccess">Optional callback with the claim answer.</param>
+        /// <param name="onError">Optional callback with the error message (the exception is still thrown).</param>
+        public async Task<PoolClaimResponse> ClaimPoolServerAsync(
+            int poolId,
+            ClaimPoolServerRequest request = null,
+            Action<PoolClaimResponse> onSuccess = null,
+            Action<string> onError = null)
+        {
+            try
+            {
+                string json = request == null ? "{}" : JsonConvert.SerializeObject(request, SerializerSettings);
+                string response = await PostAsync($"/server-pools/{poolId}/claim", json);
+                PoolClaimResponse result = Deserialize<PoolClaimResponse>(response);
+                onSuccess?.Invoke(result);
+                return result;
+            }
+            catch (Exception ex)
+            {
+                onError?.Invoke(ex.Message);
+                throw;
+            }
+        }
+
+        #endregion
+
         #region Credits
 
         /// <summary>
@@ -627,6 +669,7 @@ namespace SplatterVault
                     throw new InvalidOperationException(
                         "Organization ID required. Use CreateAsync() to auto-resolve, set OrganizationId, or pass orgId explicitly.");
                 OrgCreditStats stats = Deserialize<OrgCreditStats>(response);
+                stats?.FillLegacyFields();
                 onSuccess?.Invoke(stats);
                 return stats;
             }
@@ -658,7 +701,7 @@ namespace SplatterVault
                 else
                     throw new InvalidOperationException(
                         "Organization ID required. Use CreateAsync() to auto-resolve, set OrganizationId, or pass orgId explicitly.");
-                OrgSubscriptionInfo info = Deserialize<OrgSubscriptionInfo>(response);
+                OrgSubscriptionInfo info = ParseOrgSubscriptionInfo(response);
                 onSuccess?.Invoke(info);
                 return info;
             }
@@ -667,6 +710,24 @@ namespace SplatterVault
                 onError?.Invoke(ex.Message);
                 throw;
             }
+        }
+
+        /// <summary>
+        /// GET /organizations/{id}/subscription answers { current, all }, but GET /org/subscription answers the bare
+        /// list (newest first). Read either, and pick current the way the server does: the first active one, else
+        /// the newest.
+        /// </summary>
+        private OrgSubscriptionInfo ParseOrgSubscriptionInfo(string json)
+        {
+            string trimmed = json == null ? "" : json.TrimStart();
+            if (trimmed.Length == 0 || trimmed[0] != '[')
+                return Deserialize<OrgSubscriptionInfo>(json);
+
+            List<Subscription> all = Deserialize<List<Subscription>>(json) ?? new List<Subscription>();
+            Subscription current = all.Find(s => s != null && s.status == "active");
+            if (current == null && all.Count > 0)
+                current = all[0];
+            return new OrgSubscriptionInfo { current = current, all = all };
         }
 
         private int ResolveOrgId(int? orgId)

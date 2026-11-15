@@ -24,20 +24,25 @@ Runtime/
 ├── Models.cs                      — All request/response models
 ├── MSTExtensions.cs               — Master Server Toolkit integration
 ├── SplatterVault.Runtime.asmdef   — Unity assembly definition
-Samples~/
+Samples~/                          — server/tools code only: #if UNITY_SERVER || UNITY_EDITOR, key from SV_API_KEY
 ├── BasicExamples/                 — SimpleSessionManager, TournamentManager
-├── MSTIntegration/                — MST bridge component examples
-Tests/
-├── SplatterVault.Tests/           — Unit tests
+├── MSTIntegration/                — SplatterVaultMSTSpawner (MST master-side spawner, can claim pool servers)
+Tests~/                            — Unity skips folders ending in ~ (no .meta files needed, nothing imported)
+├── SplatterVault.Tests/           — .NET 8 integration harness (own copy of the client; defaults to production, do not run casually; `--models-only` runs the offline model checks, including the Region drift check)
+.npmignore                         — keeps repo-only files without a .meta (CLAUDE.md, .gitignore) out of the registry package (npm pack, as OpenUPM builds it); add any new top-level file without a .meta here, and repeat .gitignore rules here (npm skips .gitignore once .npmignore exists)
 ```
+
+## API Key Rule
+
+The API key belongs on servers only (dedicated server builds, a backend, the Editor). Never in a game client build, a serialized field, scene, prefab or ScriptableObject: anyone who extracts it can start/stop the org's servers and spend its credits. Samples read it from the `SV_API_KEY` environment variable inside `#if UNITY_SERVER || UNITY_EDITOR`. Game clients will use player sign-in (SDK 4.0).
 
 ## Package Info
 
 - Package name: `com.splattervault.sdk`
-- Version: 3.6.0
-- Unity requirement: 2019.4+
-- Runtime dependency: Newtonsoft.Json (included with Unity 2020+)
-- Install via Unity Package Manager: `https://github.com/ksc4130/splattervault-unity-sdk.git`
+- Version: 3.7.0
+- Unity requirement: 2020.2+ (`UnityWebRequest.Result`)
+- Runtime dependency: `com.unity.nuget.newtonsoft-json` 3.0.2 (declared in package.json; its DLL is auto-referenced, so the asmdef lists no reference)
+- Install via Unity Package Manager: `https://github.com/splattervault/unity-sdk.git` (a move to a `splattervault` GitHub org is planned: keep this URL identical in package.json, README, INSTALLATION and here so it is one find/replace)
 
 ## API Endpoints Consumed
 
@@ -80,7 +85,11 @@ All requests use API key authentication via `X-API-Key` header (not JWT Bearer t
 
 ### Organization (org-key-friendly aliases)
 - `GET /org/credits` — Org credit balance (no org ID needed in URL for org API keys)
-- `GET /org/subscription` — Org subscription info (no org ID needed in URL for org API keys)
+- `GET /org/subscription` — Org subscription info (no org ID needed in URL for org API keys). Answers a bare array (newest first), unlike `/organizations/{orgId}/subscription` (`{ current, all }`); `GetOrgSubscriptionAsync` reads both and picks `current` as the server does (first `"active"`, else newest)
+
+### Server Pools
+
+- `POST /server-pools/{id}/claim` — Claim a warm pool server (`ClaimPoolServerAsync`). Body: friendlyName, mode, argOverrides, idleTimeoutMinutes, autoDestroyOnProcessExit, scheduledEndTime. Answer: `{ sessionId, serverInstanceId, connection }`; the SDK models `sessionId` and `connection` (serverInstanceId is internal). Org keys need `org:manage_pools`. 409 = no warm server free.
 
 ### Game Configuration
 
@@ -89,13 +98,14 @@ All requests use API key authentication via `X-API-Key` header (not JWT Bearer t
 ## Key Models (Runtime/Models.cs)
 
 - `CreateSessionRequest` — Session creation payload (`gameKey` serialized as `gameTypeConfigKey`, `customVariables` serialized as `environmentVariables` — both via `[JsonProperty]`; plus region, channel)
-- `GameSession` — Session response (status strings: `"Active"`, `"Pending"`, `"Scheduled"`, `"Not Active"`; serverType: `"Credit"`, `"Subscription"`)
+- `GameSession` — Session response (status strings: `"Active"`, `"Pending"`, `"Scheduled"`, `"Not Active"`; serverType: `"Credit"`, `"Subscription"`; readiness `ready` (bool?, null on older APIs), `readyAt`, `readyDeadlineAt`)
+- `ClaimPoolServerRequest` / `PoolClaimResponse` / `SessionConnectionInfo` — Pool claim request, answer and player connection details
 - `CreditBalance` — Balance with `GetAvailableBalance()` helper (handles frozen subscription credits)
 - `StopSessionResult` — Billing info (totalHours, totalCost)
 - `StructuredLaunchArg` — Game config arg definition (types: select, number, text, boolean, hidden)
-- `OrgCreditStats` / `OrgSubscriptionInfo` — Organization billing models
+- `OrgCreditStats` / `OrgSubscriptionInfo` — Organization billing models. `OrgCreditStats.GetAvailableBalance()` returns the API's `availableBalance` (frozen subscription credits left out); `autoBuyPack { credits, price }` is what the API sends (`autoBuyCreditAmount` is obsolete, filled from it); `Subscription.periodStart` is obsolete (never sent)
 - `ApiResponse<T>` / `ApiError` — Standard API envelope
-- `Region` enum — 18 regions: 14 DigitalOcean (NYC1, NYC3, ATL1, RIC1, TOR1, SFO2, SFO3, LON1, AMS3, FRA1, SGP1, BLR1, SYD1, MKC1) plus 4 Vultr (VDFW, VORD, VMIA, VLAX; only where the platform has switched that Vultr city on for the game: the API normally answers 400 otherwise; a DigitalOcean region never falls back to Vultr). Append new members at the end only: Unity saves `[SerializeField] Region` fields by integer value, and the test copy in `Tests/SplatterVault.Tests/Models.cs` must match (a model test checks)
+- `Region` enum — 18 regions: 14 DigitalOcean (NYC1, NYC3, ATL1, RIC1, TOR1, SFO2, SFO3, LON1, AMS3, FRA1, SGP1, BLR1, SYD1, MKC1) plus 4 Vultr (VDFW, VORD, VMIA, VLAX; only where the platform has switched that Vultr city on for the game: the API normally answers 400 otherwise; a DigitalOcean region never falls back to Vultr). Append new members at the end only: Unity saves `[SerializeField] Region` fields by integer value, and the test copy in `Tests~/SplatterVault.Tests/Models.cs` must match (a model test checks)
 
 ## Authentication
 
