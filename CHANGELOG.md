@@ -5,6 +5,16 @@ All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.6.0] - 2026-11-14
+
+### Added
+- `Region.MKC1` (Kansas City), a DigitalOcean region the session API already accepts.
+- Vultr regions `Region.VDFW` (Dallas, TX), `Region.VORD` (Chicago, IL), `Region.VMIA` (Miami, FL) and `Region.VLAX` (Los Angeles, CA). These only work where the platform has switched that Vultr city on for your game; otherwise the create call is normally refused with a 400 error. You get one only by asking for it: a DigitalOcean region never falls back to Vultr, though a Vultr city you ask for can fall back to another Vultr city or a nearby DigitalOcean region.
+
+### Notes
+- The new members are appended to the end of the enum, so the integer values of all existing regions are unchanged (`NYC1` is still 0, `SYD1` is still 12). Unity saves `[SerializeField] Region` fields by integer value, so regions already chosen in scenes and prefabs keep pointing at the same datacenter. (3.4.0 inserted members in the middle of the enum and removed `SFO1`, which renumbered regions saved before 3.4.0; check scenes saved with 3.3.x or earlier if you have not already.)
+- No wire change: `CreateSessionRequest.region` is still a plain string and the API already returns these codes, so code that passed them as strings works as before. Only `SetRegion(Region)` could not reach them.
+
 ## [3.5.0] - 2026-09-29
 
 ### Added

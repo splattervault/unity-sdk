@@ -5,15 +5,37 @@ using Newtonsoft.Json;
 
 namespace SplatterVault
 {
+    // Must match Runtime/Models.cs member for member, in the same order (the model tests
+    // check this). Append only: Unity saves Region fields by integer value.
     public enum Region
     {
-        NYC1,
-        NYC3,
-        TOR1,
-        SFO1,
-        SFO2,
-        SFO3,
-        LON1
+        // US East
+        NYC1,   // New York 1
+        NYC3,   // New York 3
+        ATL1,   // Atlanta
+        RIC1,   // Richmond
+        TOR1,   // Toronto
+
+        // US West
+        SFO2,   // San Francisco 2
+        SFO3,   // San Francisco 3
+
+        // Europe
+        LON1,   // London
+        AMS3,   // Amsterdam
+        FRA1,   // Frankfurt
+
+        // Asia-Pacific
+        SGP1,   // Singapore
+        BLR1,   // Bangalore
+        SYD1,   // Sydney
+
+        // Added in 3.6.0 (appended to keep the saved integer values above unchanged)
+        MKC1,   // Kansas City
+        VDFW,   // Dallas (Vultr)
+        VORD,   // Chicago (Vultr)
+        VMIA,   // Miami (Vultr)
+        VLAX    // Los Angeles (Vultr)
     }
 
     public static class EnumExtensions

@@ -6,7 +6,13 @@ using Newtonsoft.Json;
 namespace SplatterVault
 {
     /// <summary>
-    /// Available server regions
+    /// Available server regions.
+    /// Unity saves enum fields (e.g. <c>[SerializeField] Region region</c>) by their integer
+    /// value, so new regions are only ever appended at the end. Never insert, reorder or
+    /// remove members: that silently changes the region saved in existing scenes and prefabs.
+    /// The Vultr regions (VDFW, VORD, VMIA, VLAX) only work where the platform has switched that
+    /// Vultr city on for your game; otherwise the API normally refuses the create (HTTP 400).
+    /// A DigitalOcean region never falls back to Vultr.
     /// </summary>
     public enum Region
     {
@@ -29,7 +35,14 @@ namespace SplatterVault
         // Asia-Pacific
         SGP1,   // Singapore
         BLR1,   // Bangalore
-        SYD1    // Sydney
+        SYD1,   // Sydney
+
+        // Added in 3.6.0 (appended to keep the saved integer values above unchanged)
+        MKC1,   // Kansas City
+        VDFW,   // Dallas (Vultr)
+        VORD,   // Chicago (Vultr)
+        VMIA,   // Miami (Vultr)
+        VLAX    // Los Angeles (Vultr)
     }
 
     /// <summary>

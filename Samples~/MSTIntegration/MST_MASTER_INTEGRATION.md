@@ -155,7 +155,7 @@ request.SetPaintballMode(PaintballMode.ESPN);         // 3v3
 
 ## Regions
 
-Available regions (13):
+Available regions (18):
 
 ```csharp
 // US East
@@ -178,7 +178,18 @@ Region.FRA1  // Frankfurt
 Region.SGP1  // Singapore
 Region.BLR1  // Bangalore
 Region.SYD1  // Sydney
+
+// US Central
+Region.MKC1  // Kansas City
+
+// Vultr (only where the platform has switched the city on for your game)
+Region.VDFW  // Dallas, TX
+Region.VORD  // Chicago, IL
+Region.VMIA  // Miami, FL
+Region.VLAX  // Los Angeles, CA
 ```
+
+The Vultr regions (`VDFW`, `VORD`, `VMIA`, `VLAX`) only work where the platform has switched that Vultr city on for your game; otherwise the API normally refuses the create with a 400 error. You get one only by asking for it: a DigitalOcean region never falls back to Vultr, though a Vultr city you ask for can fall back to another Vultr city or a nearby DigitalOcean region.
 
 ---
 

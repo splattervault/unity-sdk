@@ -34,7 +34,7 @@ Tests/
 ## Package Info
 
 - Package name: `com.splattervault.sdk`
-- Version: 3.5.0
+- Version: 3.6.0
 - Unity requirement: 2019.4+
 - Runtime dependency: Newtonsoft.Json (included with Unity 2020+)
 - Install via Unity Package Manager: `https://github.com/ksc4130/splattervault-unity-sdk.git`
@@ -95,7 +95,7 @@ All requests use API key authentication via `X-API-Key` header (not JWT Bearer t
 - `StructuredLaunchArg` — Game config arg definition (types: select, number, text, boolean, hidden)
 - `OrgCreditStats` / `OrgSubscriptionInfo` — Organization billing models
 - `ApiResponse<T>` / `ApiError` — Standard API envelope
-- `Region` enum — 13 offered regions: NYC1, NYC3, ATL1, RIC1, TOR1, SFO2, SFO3, LON1, AMS3, FRA1, SGP1, BLR1, SYD1
+- `Region` enum — 18 regions: 14 DigitalOcean (NYC1, NYC3, ATL1, RIC1, TOR1, SFO2, SFO3, LON1, AMS3, FRA1, SGP1, BLR1, SYD1, MKC1) plus 4 Vultr (VDFW, VORD, VMIA, VLAX; only where the platform has switched that Vultr city on for the game: the API normally answers 400 otherwise; a DigitalOcean region never falls back to Vultr). Append new members at the end only: Unity saves `[SerializeField] Region` fields by integer value, and the test copy in `Tests/SplatterVault.Tests/Models.cs` must match (a model test checks)
 
 ## Authentication
 

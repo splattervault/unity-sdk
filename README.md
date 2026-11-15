@@ -17,7 +17,7 @@ Or add directly to `Packages/manifest.json`:
 ```json
 {
   "dependencies": {
-    "com.splattervault.sdk": "https://github.com/ksc4130/splattervault-unity-sdk.git#v3.5.0"
+    "com.splattervault.sdk": "https://github.com/ksc4130/splattervault-unity-sdk.git#v3.6.0"
   }
 }
 ```
@@ -524,7 +524,20 @@ Region.FRA1   // Frankfurt
 Region.SGP1   // Singapore
 Region.BLR1   // Bangalore
 Region.SYD1   // Sydney
+
+// US Central
+Region.MKC1   // Kansas City
+
+// Vultr (only where the platform has switched the city on for your game)
+Region.VDFW   // Dallas, TX
+Region.VORD   // Chicago, IL
+Region.VMIA   // Miami, FL
+Region.VLAX   // Los Angeles, CA
 ```
+
+The Vultr regions (`VDFW`, `VORD`, `VMIA`, `VLAX`) only work where the platform has switched that Vultr city on for your game; otherwise the API normally refuses the create with a 400 error. You get one only by asking for it: a DigitalOcean region never falls back to Vultr, though a Vultr city you ask for can fall back to another Vultr city or a nearby DigitalOcean region.
+
+New regions are always added at the end of the enum, so a `Region` saved in a scene or prefab (Unity stores it as a number) keeps pointing at the same datacenter after an upgrade.
 
 ## Error Handling
 

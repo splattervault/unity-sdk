@@ -294,6 +294,75 @@ class Program
             await Task.CompletedTask;
         });
 
+        await RunTest("Model — Region enum: new regions + unchanged integer values", async () =>
+        {
+            var req = new CreateSessionRequest();
+            req.SetRegion(Region.MKC1);
+            Assert(req.region == "MKC1", $"region should be MKC1, got {req.region}");
+            req.SetRegion(Region.VDFW);
+            Assert(req.region == "VDFW", $"region should be VDFW, got {req.region}");
+            Assert(Region.VORD.ToApiString() == "VORD", "VORD should map to \"VORD\"");
+            Assert(Region.VMIA.ToApiString() == "VMIA", "VMIA should map to \"VMIA\"");
+            Assert(Region.VLAX.ToApiString() == "VLAX", "VLAX should map to \"VLAX\"");
+
+            // Unity saves [SerializeField] Region fields by integer value: these must never change.
+            var expected = new (Region region, int value)[]
+            {
+                (Region.NYC1, 0), (Region.NYC3, 1), (Region.ATL1, 2), (Region.RIC1, 3),
+                (Region.TOR1, 4), (Region.SFO2, 5), (Region.SFO3, 6), (Region.LON1, 7),
+                (Region.AMS3, 8), (Region.FRA1, 9), (Region.SGP1, 10), (Region.BLR1, 11),
+                (Region.SYD1, 12), (Region.MKC1, 13), (Region.VDFW, 14), (Region.VORD, 15),
+                (Region.VMIA, 16), (Region.VLAX, 17),
+            };
+            foreach (var (region, value) in expected)
+                Assert((int)region == value, $"(int)Region.{region} should be {value}, got {(int)region}");
+            Assert(Enum.GetValues(typeof(Region)).Length == expected.Length,
+                $"expected {expected.Length} regions, got {Enum.GetValues(typeof(Region)).Length}");
+
+            await Task.CompletedTask;
+        });
+
+        // The harness compiles its own copy of the models; make sure its Region enum has not
+        // drifted from the shipped Runtime/Models.cs (same members, same order).
+        var runtimeModels = FindRuntimeModelsFile();
+        if (runtimeModels == null)
+        {
+            // The harness lives in the SDK repository, so a missing Runtime/Models.cs is a failure, not a skip.
+            await RunTest("Model — Region enum matches Runtime/Models.cs", async () =>
+            {
+                Assert(false, "Runtime/Models.cs not found: run the harness from inside the SDK repository");
+                await Task.CompletedTask;
+            });
+        }
+        else
+        {
+            await RunTest("Model — Region enum matches Runtime/Models.cs", async () =>
+            {
+                var source = File.ReadAllText(runtimeModels);
+                var match = System.Text.RegularExpressions.Regex.Match(source, @"public\s+enum\s+Region\s*\{([^}]*)\}");
+                Assert(match.Success, "could not find 'public enum Region' in Runtime/Models.cs");
+
+                var runtimeNames = new List<string>();
+                foreach (var line in match.Groups[1].Value.Split('\n'))
+                {
+                    var code = line;
+                    var comment = code.IndexOf("//", StringComparison.Ordinal);
+                    if (comment >= 0) code = code[..comment];
+                    foreach (var part in code.Split(','))
+                    {
+                        var name = part.Trim();
+                        if (name.Length > 0) runtimeNames.Add(name);
+                    }
+                }
+
+                var testNames = Enum.GetNames(typeof(Region));
+                Assert(string.Join(",", runtimeNames) == string.Join(",", testNames),
+                    $"Runtime Region [{string.Join(",", runtimeNames)}] != test copy [{string.Join(",", testNames)}]");
+
+                await Task.CompletedTask;
+            });
+        }
+
         await RunTest("Model — CreateSessionRequest channel field", async () =>
         {
             var req = new CreateSessionRequest { gameKey = "sys_test_123" };
@@ -741,6 +810,23 @@ class Program
             failed++;
             failures.Add($"{name}: {ex.Message}");
         }
+    }
+
+    // Walks up from the working directory and the build output to find the package's
+    // Runtime/Models.cs (the harness lives in Tests/SplatterVault.Tests).
+    static string? FindRuntimeModelsFile()
+    {
+        foreach (var start in new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory })
+        {
+            var dir = new DirectoryInfo(start);
+            while (dir != null)
+            {
+                var candidate = Path.Combine(dir.FullName, "Runtime", "Models.cs");
+                if (File.Exists(candidate)) return candidate;
+                dir = dir.Parent;
+            }
+        }
+        return null;
     }
 
     static void Skip(string name)
