@@ -1,9 +1,12 @@
 [Oo]bj/
 [Bb]in/
 *.csproj
+# The Core unit test project (outside the Unity import) is part of the repo.
+!Tests~/**/*.csproj
 *.sln
 *.suo
 *.user
 *.pidb
 *.booproj
 .vs/
+TestResults/

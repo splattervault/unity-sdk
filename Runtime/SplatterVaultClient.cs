@@ -44,14 +44,41 @@ namespace SplatterVault
         /// Initialize the SplatterVault client
         /// </summary>
         /// <param name="apiKey">Your SplatterVault API key (sv_... or sv_org_...)</param>
+        /// <param name="baseUrl">The API, /rest included. https only, except loopback hosts (localhost, 127.0.0.1, ::1).</param>
         public SplatterVaultClient(string apiKey, string baseUrl = "https://splattervault.com/rest")
+            : this(apiKey, baseUrl, false)
+        {
+            // The 3.7 signature, kept so code built against 3.7 still binds to it.
+        }
+
+        /// <summary>
+        /// Initialize the SplatterVault client, optionally allowing a plain-http development server.
+        /// </summary>
+        /// <param name="apiKey">Your SplatterVault API key (sv_... or sv_org_...)</param>
+        /// <param name="baseUrl">The API, /rest included. https only, except loopback hosts (localhost, 127.0.0.1, ::1).</param>
+        /// <param name="allowInsecureHttp">DEVELOPMENT ONLY: allow an http:// baseUrl whose host is not loopback (the API key travels on it).</param>
+        public SplatterVaultClient(string apiKey, string baseUrl, bool allowInsecureHttp)
         {
             if (string.IsNullOrEmpty(apiKey))
                 throw new ArgumentException("API key is required");
 
             this.apiKey = apiKey;
-            this.baseUrl = baseUrl.TrimEnd('/');
-            this.isOrgKey = apiKey.StartsWith("sv_org_");
+            this.baseUrl = CheckBaseUrl(baseUrl, allowInsecureHttp);
+            this.isOrgKey = apiKey.StartsWith("sv_org_", StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// The base URL, trimmed: an absolute https URL, or http for a loopback host (or any host with
+        /// <paramref name="allowInsecure"/>, for development). The API key travels on every request.
+        /// </summary>
+        private static string CheckBaseUrl(string baseUrl, bool allowInsecure)
+        {
+            if (string.IsNullOrWhiteSpace(baseUrl)) throw new ArgumentException("baseUrl is required");
+            if (!Uri.TryCreate(baseUrl.Trim(), UriKind.Absolute, out var uri) || (uri.Scheme != "https" && uri.Scheme != "http"))
+                throw new ArgumentException("baseUrl must be an absolute http(s) URL, such as https://splattervault.com/rest");
+            if (uri.Scheme == "http" && !allowInsecure && !uri.IsLoopback)
+                throw new ArgumentException("baseUrl must use https: the API key travels on it (http:// only for localhost, or with allowInsecureHttp for development).");
+            return baseUrl.Trim().TrimEnd('/');
         }
 
         /// <summary>
@@ -61,7 +88,17 @@ namespace SplatterVault
         /// <param name="apiKey">Your organization API key (sv_org_...)</param>
         /// <param name="organizationId">The organization ID this key belongs to</param>
         public SplatterVaultClient(string apiKey, int organizationId, string baseUrl = "https://splattervault.com/rest")
-            : this(apiKey, baseUrl)
+            : this(apiKey, organizationId, baseUrl, false)
+        {
+            // The 3.7 signature, kept so code built against 3.7 still binds to it.
+        }
+
+        /// <summary>
+        /// Initialize the SplatterVault client with an organization API key and explicit org ID, optionally allowing a
+        /// plain-http development server (<paramref name="allowInsecureHttp"/>, development only).
+        /// </summary>
+        public SplatterVaultClient(string apiKey, int organizationId, string baseUrl, bool allowInsecureHttp)
+            : this(apiKey, baseUrl, allowInsecureHttp)
         {
             this.organizationId = organizationId;
         }
@@ -86,11 +123,21 @@ namespace SplatterVault
         /// Create and initialize a SplatterVault client in one step.
         /// For org API keys, the organization ID is auto-resolved — no need to provide it.
         /// </summary>
-        public static async Task<SplatterVaultClient> CreateAsync(
+        public static Task<SplatterVaultClient> CreateAsync(
             string apiKey,
             string baseUrl = "https://splattervault.com/rest")
         {
-            var client = new SplatterVaultClient(apiKey, baseUrl);
+            // The 3.7 signature, kept so code built against 3.7 still binds to it.
+            return CreateAsync(apiKey, baseUrl, false);
+        }
+
+        /// <summary>
+        /// Create and initialize a client in one step, optionally allowing a plain-http development server
+        /// (<paramref name="allowInsecureHttp"/>, development only).
+        /// </summary>
+        public static async Task<SplatterVaultClient> CreateAsync(string apiKey, string baseUrl, bool allowInsecureHttp)
+        {
+            var client = new SplatterVaultClient(apiKey, baseUrl, allowInsecureHttp);
             await client.InitializeAsync();
             return client;
         }
@@ -312,7 +359,7 @@ namespace SplatterVault
         {
             try
             {
-                string json = JsonConvert.SerializeObject(new { friendlyName }, SerializerSettings);
+                string json = FriendlyNameBody(friendlyName);
                 string response = await PutAsync($"/credits/sessions/{sessionId}/friendly-name", json);
                 GameSession session = Deserialize<GameSession>(response);
                 onSuccess?.Invoke(session);
@@ -326,6 +373,18 @@ namespace SplatterVault
         }
 
         /// <summary>
+        /// The body of a friendly-name change, built without reflection: an anonymous type's getters are read only
+        /// by reflection, so IL2CPP code stripping could remove them and send <c>{}</c>. Same JSON as before
+        /// (<c>{"friendlyName":"..."}</c>, or <c>{}</c> for null, as NullValueHandling.Ignore wrote it).
+        /// </summary>
+        private static string FriendlyNameBody(string friendlyName)
+        {
+            var body = new Newtonsoft.Json.Linq.JObject();
+            if (friendlyName != null) body["friendlyName"] = friendlyName;
+            return body.ToString(Formatting.None);
+        }
+
+        /// <summary>
         /// Update the friendly name of a subscription-based session
         /// </summary>
         public async Task<GameSession> UpdateSubscriptionSessionFriendlyNameAsync(
@@ -336,7 +395,7 @@ namespace SplatterVault
         {
             try
             {
-                string json = JsonConvert.SerializeObject(new { friendlyName }, SerializerSettings);
+                string json = FriendlyNameBody(friendlyName);
                 string response = await PutAsync($"/subscriptions/sessions/{sessionId}/friendly-name", json);
                 GameSession session = Deserialize<GameSession>(response);
                 onSuccess?.Invoke(session);
@@ -821,12 +880,19 @@ namespace SplatterVault
 
         private async Task SendRequest(UnityWebRequest request)
         {
+            // Never follow a redirect: it would carry the X-API-Key header to another address (UnityWebRequest follows
+            // up to 32 by default). A 3xx is an error.
+            request.redirectLimit = 0;
             var operation = request.SendWebRequest();
 
             while (!operation.isDone)
             {
                 await Task.Yield();
             }
+
+            if (request.responseCode >= 300 && request.responseCode < 400)
+                throw new Exception("API Error: the API answered with a redirect (HTTP " + request.responseCode +
+                                    "). The client never follows redirects (the API key must not travel to another address): check baseUrl.");
 
             if (request.result != UnityWebRequest.Result.Success)
             {

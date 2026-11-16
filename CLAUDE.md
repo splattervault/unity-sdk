@@ -19,27 +19,37 @@ This SDK consumes the ppg-vpl backend API (`../ppg-vpl/api/`). It is one of seve
 ## Repository Structure
 
 ```
-Runtime/
-├── SplatterVaultClient.cs         — Main API client (all HTTP methods)
-├── Models.cs                      — All request/response models
+Core/                              — SplatterVault.Core assembly (noEngineReferences: no UnityEngine), SDK 4.0 game-client side
+├── SvHttp.cs, SvApiException.cs, SvJson.cs, SvRetryPolicy.cs, SvIdempotency.cs, SvSecureStore.cs
+├── Players/                       — SvPlayers (entry), SvAuth, SvPlayerDataApi + SvDataOps, SvStoreApi, SvModels, SvPipeline
+Runtime/                           — SplatterVault.Runtime assembly (references Core)
+├── SplatterVaultClient.cs         — Server/tools API client (API key; all v3 HTTP methods)
+├── Models.cs                      — v3 request/response models
 ├── MSTExtensions.cs               — Master Server Toolkit integration
 ├── SplatterVault.Runtime.asmdef   — Unity assembly definition
-Samples~/                          — server/tools code only: #if UNITY_SERVER || UNITY_EDITOR, key from SV_API_KEY
-├── BasicExamples/                 — SimpleSessionManager, TournamentManager
-├── MSTIntegration/                — SplatterVaultMSTSpawner (MST master-side spawner, can claim pool servers)
+├── Players/                       — UnityWebRequestTransport, SvUnityPlatform (registers defaults at startup), Android Keystore, iOS Keychain, Windows DPAPI stores
+├── Plugins/iOS/SplatterVaultKeychain.mm — Keychain native plugin
+├── AssemblyInfo.cs                — [assembly: AlwaysLinkAssembly]: the linker always processes Runtime, so the SvUnityPlatform start-up hook survives stripping
+├── link.xml                       — keeps Core whole + the v3 JSON models and start-up hook (add new v3 model types here); Unity ignores link.xml inside packages, so Editor/SvLinkXmlProvider.cs (IUnityLinkerProcessor) hands it to the linker in every IL2CPP build
+Editor/                            — SplatterVault.Editor assembly (Editor only)
+├── SvLinkXmlProvider.cs           — IUnityLinkerProcessor: hands Runtime/link.xml to the linker in every IL2CPP build
+Samples~/
+├── PlayerAccounts/, PlayerData/, Store/, PlatformSignIn/ — game client samples (no API key; Meta/Steam behind SV_META_PLATFORM / STEAMWORKS_NET)
+├── BasicExamples/, MSTIntegration/ — server/tools code only: #if UNITY_SERVER || UNITY_EDITOR, key from SV_API_KEY
 Tests~/                            — Unity skips folders ending in ~ (no .meta files needed, nothing imported)
+├── SplatterVault.Core.Tests/      — dotnet test (MSTest) of the real Core sources with a fake transport; never talks to a server
 ├── SplatterVault.Tests/           — .NET 8 integration harness (own copy of the client; defaults to production, do not run casually; `--models-only` runs the offline model checks, including the Region drift check)
 .npmignore                         — keeps repo-only files without a .meta (CLAUDE.md, .gitignore) out of the registry package (npm pack, as OpenUPM builds it); add any new top-level file without a .meta here, and repeat .gitignore rules here (npm skips .gitignore once .npmignore exists)
 ```
 
 ## API Key Rule
 
-The API key belongs on servers only (dedicated server builds, a backend, the Editor). Never in a game client build, a serialized field, scene, prefab or ScriptableObject: anyone who extracts it can start/stop the org's servers and spend its credits. Samples read it from the `SV_API_KEY` environment variable inside `#if UNITY_SERVER || UNITY_EDITOR`. Game clients will use player sign-in (SDK 4.0).
+The API key belongs on servers only (dedicated server builds, a backend, the Editor). Never in a game client build, a serialized field, scene, prefab or ScriptableObject: anyone who extracts it can start/stop the org's servers and spend its credits. Samples read it from the `SV_API_KEY` environment variable inside `#if UNITY_SERVER || UNITY_EDITOR`. Game clients use `SvPlayers` (player sign-in, SDK 4.0), which never accepts or sends an API key (the pipeline strips any `X-API-Key` header).
 
 ## Package Info
 
 - Package name: `com.splattervault.sdk`
-- Version: 3.7.0
+- Version: 4.0.0-preview.1 (unreleased)
 - Unity requirement: 2020.2+ (`UnityWebRequest.Result`)
 - Runtime dependency: `com.unity.nuget.newtonsoft-json` 3.0.2 (declared in package.json; its DLL is auto-referenced, so the asmdef lists no reference)
 - Install via Unity Package Manager: `https://github.com/splattervault/unity-sdk.git` (a move to a `splattervault` GitHub org is planned: keep this URL identical in package.json, README, INSTALLATION and here so it is one find/replace)
@@ -95,6 +105,13 @@ All requests use API key authentication via `X-API-Key` header (not JWT Bearer t
 
 - `GET /game-types/{gameKey}/configurable-args` — Discoverable launch arguments (type, options, min/max, validation)
 
+### Player services (SvPlayers, player token `Authorization: Bearer`, no API key)
+
+- `/player-auth/{xsolla,meta,steam,playfab,supabase}`, `/email/code`, `/email/code/verify`, `/email/password`, `/refresh`, `/sign-out`, `/device/new`, `/device`, `GET|DELETE /me`, `POST|DELETE /link/:provider` (email: `/link/email`, `/link/email/code`, and `POST /link/email/remove` for removal: `RemoveEmailAsync` sends it and falls back once to `DELETE /link/email` on a 404 from an older API), `PUT /me/password`
+- `/player-data/me` (GET, PATCH ops), `/player-data/game` (ETag), `/player-data/games/:game/public` (no credential)
+- `/store/catalog`, `/store/me`, `/store/me/history`, `/store/me/purchases`, `/store/me/consume` (Idempotency-Key), `/store/me/platform-purchases/meta`
+- Errors `{ error, message, details? }`; act on `error`. Bodies must be `application/json`.
+
 ## Key Models (Runtime/Models.cs)
 
 - `CreateSessionRequest` — Session creation payload (`gameKey` serialized as `gameTypeConfigKey`, `customVariables` serialized as `environmentVariables` — both via `[JsonProperty]`; plus region, channel)
@@ -134,6 +151,6 @@ If the ppg-vpl API changes any of the consumed endpoints:
 - **Auth mechanism changes** — Update `SetRequestHeader("X-API-Key", apiKey)` calls
 - **New required request fields** — Update `CreateSessionRequest` and any other request models
 
-## No CLI Build/Test Commands
+## Build/Test Commands
 
-This is a Unity package, not a standalone project. It is built and tested within Unity projects that import it. Tests run via the Unity Test Runner.
+This is a Unity package; Runtime and the samples are built inside Unity projects that import it. The engine-free core has unit tests: `cd "Tests~/SplatterVault.Core.Tests" && dotnet test` (fake transport, no server). Never run the old `Tests~/SplatterVault.Tests` harness casually: it targets production (its `--models-only` mode is offline).

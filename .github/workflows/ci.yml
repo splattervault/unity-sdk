@@ -1,0 +1,43 @@
+name: CI
+
+# Offline checks that need no Unity: the unit tests of the engine-free core (Tests~/SplatterVault.Core.Tests compiles
+# the real Core/ sources against a fake transport, with NuGet packages only) and the self-test of the local API mock in
+# Tools~/sdk-mock. No SplatterVault server is ever called. The Unity-side code (Runtime/, Editor/, samples) is built
+# inside a Unity project and is not covered here.
+#
+# Actions are pinned by commit SHA (the tag in the comment); update both together.
+
+on:
+  push:
+    branches: [main, v4]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  core-tests:
+    name: Core unit tests (.NET 8)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          dotnet-version: 8.0.x
+      - name: dotnet test
+        working-directory: Tests~/SplatterVault.Core.Tests
+        run: dotnet test --nologo
+
+  mock-selftest:
+    name: API mock self-test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: node "Tools~/sdk-mock/selftest.mjs"

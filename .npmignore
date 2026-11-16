@@ -3,14 +3,20 @@
 # files without one are left out here.
 /CLAUDE.md
 /.gitignore
+# Repository-only tooling: CI workflows and the local API mock (Tools~ is never imported by Unity either).
+/.github/
+/Tools~/
 
 # npm stops reading .gitignore once this file exists, so its rules are repeated here.
 [Oo]bj/
 [Bb]in/
 *.csproj
+# The Core unit test project (in Tests~, which Unity does not import) stays in.
+!Tests~/**/*.csproj
 *.sln
 *.suo
 *.user
 *.pidb
 *.booproj
 .vs/
+TestResults/

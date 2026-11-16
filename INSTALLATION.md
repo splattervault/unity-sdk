@@ -8,23 +8,21 @@
 2. Go to Window → Package Manager
 3. Click the `+` button
 4. Select "Add package from git URL"
-5. Enter: `https://github.com/splattervault/unity-sdk.git#v3.7.0`
+5. Enter: `https://github.com/splattervault/unity-sdk.git#v4.0.0-preview.1`
 
 The Package Manager also installs the SDK's one dependency, Newtonsoft Json (`com.unity.nuget.newtonsoft-json`).
 
 ### Option 2: Manual Installation
 
-1. Copy the `Runtime` folder into your project, e.g. `Assets/SplatterVault/`
+1. Copy the `Core` and `Runtime` folders into your project, e.g. `Assets/SplatterVault/`
 2. Install **Newtonsoft Json** (`com.unity.nuget.newtonsoft-json`) from the Package Manager
 
 ```
 YourUnityProject/
   Assets/
     SplatterVault/
-      MSTExtensions.cs
-      Models.cs
-      SplatterVaultClient.cs
-      SplatterVault.Runtime.asmdef
+      Core/                          (SplatterVault.Core.asmdef, player services)
+      Runtime/                       (SplatterVault.Runtime.asmdef, server client, Unity transport and secure storage)
 ```
 
 ## Verification
@@ -76,7 +74,7 @@ public class TestSDK : MonoBehaviour
 
 ## Securing Your API Key
 
-**Your API key belongs on servers only:** dedicated server builds, your own backend, or the Unity Editor while you develop. Never put it in a game client build, in any form: a `[SerializeField]` field, a scene, a prefab, a ScriptableObject or a string in code. Players can pull anything out of a client build, and with your key anyone can start and stop your servers and spend your (or your organization's) credits. Game clients will sign players in instead (coming in SDK 4.0).
+**Your API key belongs on servers only:** dedicated server builds, your own backend, or the Unity Editor while you develop. Never put it in a game client build, in any form: a `[SerializeField]` field, a scene, a prefab, a ScriptableObject or a string in code. Players can pull anything out of a client build, and with your key anyone can start and stop your servers and spend your (or your organization's) credits. Game clients sign players in instead, with `SvPlayers` (SDK 4.0), which never takes a key.
 
 Read the key from an environment variable on the machine that runs your server-side code, and keep that code out of client builds:
 
@@ -95,11 +93,11 @@ var client = await SplatterVaultClient.CreateAsync(apiKey);
 
 ### "Cannot find type or namespace 'SplatterVault'"
 
-**Solution:** Make sure the package (or the `Runtime` folder) is in your project and Unity has finished compiling.
+**Solution:** Make sure the package (or the `Core` and `Runtime` folders) is in your project and Unity has finished compiling.
 
 ### "The type or namespace name 'Newtonsoft' could not be found"
 
-**Solution:** Install the Newtonsoft Json package (`com.unity.nuget.newtonsoft-json`) from the Package Manager. The Package Manager install does this for you; a manual copy of `Runtime` does not.
+**Solution:** Install the Newtonsoft Json package (`com.unity.nuget.newtonsoft-json`) from the Package Manager. The Package Manager install does this for you; a manual copy of `Core` and `Runtime` does not.
 
 ### "The type or namespace name 'Task' could not be found"
 
@@ -120,10 +118,14 @@ var client = await SplatterVaultClient.CreateAsync(apiKey);
 3. Check firewall settings
 4. Enable "Internet Access" in Player Settings
 
+### Fields come back empty in an IL2CPP build (High stripping)
+
+**Solution:** the package hands its `Runtime/link.xml` to the linker itself (`Editor/SvLinkXmlProvider.cs`), so this should not happen with a Package Manager install. Check that the `SplatterVault.Editor` assembly compiled (no errors in the Console) and that the package's `Editor` folder is present. With a manual install (`Core` and `Runtime` copied into `Assets`), Unity reads `Runtime/link.xml` there directly. See "IL2CPP Builds" in `README.md`.
+
 ## Support
 
 - Documentation: See `README.md`
-- API Docs: https://splattervault.com/#/api-docs
+- API Docs: https://splattervault.com/developers?tab=reference
 - Discord: Report issues with `/reportbug`
 - Email: support@splattervault.com
 
@@ -136,14 +138,23 @@ unity-sdk/
 ├── CHANGELOG.md                       # Version history
 ├── MST_INTEGRATION.md                 # Master Server Toolkit guide
 ├── package.json                       # Unity Package Manager manifest
+├── Core/                              # SplatterVault.Core: player sign-in, data, store (no UnityEngine)
 ├── Runtime/
-│   ├── SplatterVaultClient.cs         # Main API client
+│   ├── SplatterVaultClient.cs         # Server/tools API client (API key)
 │   ├── Models.cs                      # Request and response models
 │   ├── MSTExtensions.cs               # WaitForServerReady and MST helpers
+│   ├── Players/                       # UnityWebRequest transport, platform secure storage
+│   ├── Plugins/iOS/                   # Keychain native plugin
+│   ├── AssemblyInfo.cs                # AlwaysLinkAssembly (keeps the start-up hook in IL2CPP builds)
+│   ├── link.xml                       # IL2CPP stripping rules (handed to the linker by Editor/SvLinkXmlProvider.cs)
 │   └── SplatterVault.Runtime.asmdef
-└── Samples~/
-    ├── BasicExamples/                 # SimpleSessionManager, TournamentManager
-    └── MSTIntegration/                # SplatterVaultMSTSpawner
+├── Editor/SvLinkXmlProvider.cs        # Hands Runtime/link.xml to the IL2CPP linker (nothing to copy)
+├── Samples~/
+│   ├── PlayerAccounts/, PlayerData/, Store/, PlatformSignIn/   # game client samples
+│   ├── BasicExamples/                 # SimpleSessionManager, TournamentManager
+│   └── MSTIntegration/                # SplatterVaultMSTSpawner
+├── Tests~/SplatterVault.Core.Tests/   # dotnet test of Core (no Unity, no server)
+└── Tools~/sdk-mock/                   # local API mock for Editor/device checks (never imported; not in the registry package)
 ```
 
 See `CHANGELOG.md` for the version history.

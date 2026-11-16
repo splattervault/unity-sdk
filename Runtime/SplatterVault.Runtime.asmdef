@@ -1,7 +1,9 @@
 {
   "name": "SplatterVault.Runtime",
   "rootNamespace": "SplatterVault",
-  "references": [],
+  "references": [
+    "SplatterVault.Core"
+  ],
   "includePlatforms": [],
   "excludePlatforms": [],
   "allowUnsafeCode": false,

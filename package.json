@@ -1,8 +1,8 @@
 {
   "name": "com.splattervault.sdk",
-  "version": "3.7.0",
+  "version": "4.0.0-preview.1",
   "displayName": "SplatterVault SDK",
-  "description": "Official Unity SDK for the SplatterVault game session management API. Create, manage, and monitor dedicated game servers programmatically. Includes Master Server Toolkit integration.",
+  "description": "Official Unity SDK for SplatterVault. Game clients: player sign-in and accounts (Meta Quest, Steam, Xsolla, PlayFab, Supabase, email, guests), player data and the store, with no API key. Servers and tools: create, manage and monitor dedicated game servers, with Master Server Toolkit integration.",
   "unity": "2020.2",
   "keywords": [
     "splattervault",
@@ -12,7 +12,11 @@
     "multiplayer",
     "networking",
     "mst",
-    "master server toolkit"
+    "master server toolkit",
+    "player sign-in",
+    "player data",
+    "store",
+    "inventory"
   ],
   "author": {
     "name": "SplatterVault",
@@ -28,6 +32,26 @@
     "com.unity.nuget.newtonsoft-json": "3.0.2"
   },
   "samples": [
+    {
+      "displayName": "Player Accounts",
+      "description": "Game client: guest and SplatterVault email sign-in, add an email to a guest, sign out, delete the account. No API key.",
+      "path": "Samples~/PlayerAccounts"
+    },
+    {
+      "displayName": "Player Data",
+      "description": "Game client: save and load the player's settings with versions (ifVersion), a counter with inc, and the game's public data (ETag). No API key.",
+      "path": "Samples~/PlayerData"
+    },
+    {
+      "displayName": "Store",
+      "description": "Game client: catalog, balances and items, buying with virtual currency, using items up, history, and finishing interrupted purchases. No API key.",
+      "path": "Samples~/Store"
+    },
+    {
+      "displayName": "Platform Sign-in",
+      "description": "Game client: Meta Quest sign-in and add-on purchases (define SV_META_PLATFORM), Steam sign-in (Steamworks.NET: STEAMWORKS_NET or SV_STEAMWORKS). Builds without those SDKs. No API key.",
+      "path": "Samples~/PlatformSignIn"
+    },
     {
       "displayName": "Basic Examples",
       "description": "Server-side session management: SimpleSessionManager and TournamentManager (Editor and dedicated server builds only; API key from an environment variable)",

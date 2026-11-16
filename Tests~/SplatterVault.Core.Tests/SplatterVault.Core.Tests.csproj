@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Unit tests of SplatterVault.Core: they compile the REAL Core/ sources (no copy) and talk to a fake transport,
+    never to a server. The folder ends in "~", so Unity never imports it.
+
+      cd Tests~/SplatterVault.Core.Tests && dotnet test
+
+    Offline machines can pin package versions they hold, e.g. -p:TestSdkVersion=17.10.0-preview-24080-01.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <!-- Unity 2020.2's C# level: the Core sources must compile with it. -->
+    <LangVersion>8.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>SplatterVault.Core.Tests</RootNamespace>
+    <DefineConstants>$(DefineConstants);SV_UNIX_PERMISSIONS_TESTS</DefineConstants>
+    <TestSdkVersion Condition="'$(TestSdkVersion)' == ''">17.10.0</TestSdkVersion>
+    <MSTestVersion Condition="'$(MSTestVersion)' == ''">3.1.1</MSTestVersion>
+    <!-- com.unity.nuget.newtonsoft-json 3.0.2 ships Json.NET 13.0.1 -->
+    <NewtonsoftVersion Condition="'$(NewtonsoftVersion)' == ''">13.0.1</NewtonsoftVersion>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../Core/**/*.cs" Link="Core/%(RecursiveDir)%(Filename)%(Extension)" />
+    <!-- The one engine-free Runtime file: the owner-only file modes of the encrypted-file fallback (real chmod). -->
+    <Compile Include="../../Runtime/Players/SvUnixPermissions.cs" Link="Runtime/SvUnixPermissions.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="$(TestSdkVersion)" />
+    <PackageReference Include="MSTest.TestAdapter" Version="$(MSTestVersion)" />
+    <PackageReference Include="MSTest.TestFramework" Version="$(MSTestVersion)" />
+    <PackageReference Include="Newtonsoft.Json" Version="$(NewtonsoftVersion)" />
+  </ItemGroup>
+</Project>

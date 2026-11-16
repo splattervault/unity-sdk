@@ -1,0 +1,52 @@
+<!--
+  SplatterVault SDK: keep the JSON models from IL2CPP managed code stripping. Newtonsoft.Json fills them by
+  reflection, so a stripped setter or constructor would silently leave fields empty in a player build.
+
+  Unity reads link.xml files only from the Assets folder, so the package hands this file to the linker itself:
+  Editor/SvLinkXmlProvider.cs (an IUnityLinkerProcessor) adds it to every IL2CPP build. Nothing to copy. A
+  manual install (Core and Runtime copied into Assets) has it in Assets, where Unity reads it directly.
+  [Preserve] on the Core model types is not enough on its own: it keeps a type and its default constructor, not
+  its property setters, which only Newtonsoft.Json calls (by reflection).
+
+  SplatterVault.Core (player sign-in, data, store: all models) is kept whole. Of SplatterVault.Runtime only the
+  JSON models of the v3 server client are kept, not the whole assembly: SplatterVaultClient itself stays only in
+  builds whose code uses it (servers and tools), so a game client build does not carry the API-key client.
+  If you also strip Newtonsoft.Json, add <assembly fullname="Newtonsoft.Json" preserve="all" /> to your copy.
+-->
+<linker>
+  <assembly fullname="SplatterVault.Core" preserve="all" />
+  <assembly fullname="SplatterVault.Runtime">
+    <type fullname="SplatterVault.CreateSessionRequest" preserve="all" />
+    <type fullname="SplatterVault.GameSession" preserve="all" />
+    <type fullname="SplatterVault.StructuredLaunchArg" preserve="all" />
+    <type fullname="SplatterVault.SelectOption" preserve="all" />
+    <type fullname="SplatterVault.ServerSizeInfo" preserve="all" />
+    <type fullname="SplatterVault.StopSessionResult" preserve="all" />
+    <type fullname="SplatterVault.CreditBalance" preserve="all" />
+    <type fullname="SplatterVault.CreditStats" preserve="all" />
+    <type fullname="SplatterVault.CreditTransaction" preserve="all" />
+    <type fullname="SplatterVault.ApiResponse`1" preserve="all" />
+    <type fullname="SplatterVault.ApiError" preserve="all" />
+    <type fullname="SplatterVault.Subscription" preserve="all" />
+    <type fullname="SplatterVault.SubscriptionDetails" preserve="all" />
+    <type fullname="SplatterVault.UsageStats" preserve="all" />
+    <type fullname="SplatterVault.OrgCreditStats" preserve="all" />
+    <type fullname="SplatterVault.AutoBuyPack" preserve="all" />
+    <type fullname="SplatterVault.OrgSubscriptionInfo" preserve="all" />
+    <type fullname="SplatterVault.CancelScheduleResult" preserve="all" />
+    <type fullname="SplatterVault.ClaimPoolServerRequest" preserve="all" />
+    <type fullname="SplatterVault.PoolClaimResponse" preserve="all" />
+    <type fullname="SplatterVault.SessionConnectionInfo" preserve="all" />
+    <type fullname="SplatterVault.SessionConnectionPort" preserve="all" />
+    <type fullname="SplatterVault.SessionConnectionInstructions" preserve="all" />
+    <type fullname="SplatterVault.AuthContext" preserve="all" />
+    <type fullname="SplatterVault.MetaLinkStatus" preserve="all" />
+    <type fullname="SplatterVault.MetaLoginResponse" preserve="all" />
+    <type fullname="SplatterVault.MetaLoginUser" preserve="all" />
+    <type fullname="SplatterVault.TokenRefreshResponse" preserve="all" />
+    <type fullname="SplatterVault.TokenRefreshData" preserve="all" />
+    <type fullname="SplatterVault.MST.MSTServerInfo" preserve="all" />
+    <!-- Called by the engine at start-up (RuntimeInitializeOnLoadMethod): registers the transport and secure storage. -->
+    <type fullname="SplatterVault.Players.Unity.SvUnityPlatform" preserve="all" />
+  </assembly>
+</linker>
