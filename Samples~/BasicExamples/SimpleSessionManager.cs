@@ -269,8 +269,9 @@ public class SimpleSessionManager : MonoBehaviour
 
     /// <summary>
     /// Your server-side logic to tell players or your matchmaker about the new server.
-    /// Players connect to session.slaveIp:session.GetServerPort() (or with session.code), they never
-    /// need the API key.
+    /// Players connect to session.GetJoinHost():session.GetJoinPort() (or with session.code); they never
+    /// need the API key. Both are null until the server is up and the port is known: read the session again
+    /// later (GetSessionAsync), or wait for it with WaitForServerReady (using SplatterVault.MST).
     /// </summary>
     private void PublishServer(GameSession session)
     {

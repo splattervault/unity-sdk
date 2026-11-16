@@ -41,7 +41,8 @@ The Vultr regions (`VDFW`, `VORD`, `VMIA`, `VLAX`) only work where the platform 
 ```csharp
 // In your master server's spawn handler
 GameSession session = await spawner.SpawnAsync("Ranked room 12");
-Debug.Log($"Room server {session.code} at {session.slaveIp}:{session.GetServerPort()}");
+// GetJoinPort() is the port players join on; null while it is not known yet (see the README)
+Debug.Log($"Room server {session.code} at {session.slaveIp}:{session.GetJoinPort()}");
 
 // When the room is done
 await spawner.StopAsync(session);

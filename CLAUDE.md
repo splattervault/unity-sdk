@@ -37,7 +37,7 @@ Samples~/
 ├── PlayerAccounts/, PlayerData/, Store/, PlatformSignIn/ — game client samples (no API key; Meta/Steam behind SV_META_PLATFORM / STEAMWORKS_NET)
 ├── BasicExamples/, MSTIntegration/ — server/tools code only: #if UNITY_SERVER || UNITY_EDITOR, key from SV_API_KEY
 Tests~/                            — Unity skips folders ending in ~ (no .meta files needed, nothing imported)
-├── SplatterVault.Core.Tests/      — dotnet test (MSTest) of the real Core sources with a fake transport; never talks to a server
+├── SplatterVault.Core.Tests/      — dotnet test (MSTest) of the real Core sources with a fake transport, plus Runtime/Models.cs (engine-free: session join helpers); never talks to a server
 ├── SplatterVault.Tests/           — .NET 8 integration harness (own copy of the client; defaults to production, do not run casually; `--models-only` runs the offline model checks, including the Region drift check)
 .npmignore                         — keeps repo-only files without a .meta (CLAUDE.md, .gitignore) out of the registry package (npm pack, as OpenUPM builds it); add any new top-level file without a .meta here, and repeat .gitignore rules here (npm skips .gitignore once .npmignore exists)
 ```
@@ -49,7 +49,7 @@ The API key belongs on servers only (dedicated server builds, a backend, the Edi
 ## Package Info
 
 - Package name: `com.splattervault.sdk`
-- Version: 4.0.0-preview.1 (unreleased)
+- Version: 4.0.0-preview.2 (on OpenUPM)
 - Unity requirement: 2020.2+ (`UnityWebRequest.Result`)
 - Runtime dependency: `com.unity.nuget.newtonsoft-json` 3.0.2 (declared in package.json; its DLL is auto-referenced, so the asmdef lists no reference)
 - Install via Unity Package Manager: `https://github.com/splattervault/unity-sdk.git` (a move to a `splattervault` GitHub org is planned: keep this URL identical in package.json, README, INSTALLATION and here so it is one find/replace)
@@ -62,7 +62,7 @@ All requests use API key authentication via `X-API-Key` header (not JWT Bearer t
 
 - `POST /credits/sessions` — Create credit session
 - `POST /subscriptions/sessions` — Create subscription session
-- `GET /game-sessions/{id}` — Get session by ID
+- `GET /game-sessions/{id}` — Get session by ID (also answers `connection`; an older API leaves it out, so `GetJoinPort()` falls back to `slavePort`)
 - `GET /game-sessions/my-sessions` — List user's sessions (personal key)
 - `GET /credits/sessions` — List credit sessions (org key)
 - `GET /subscriptions/sessions` — List subscription sessions (org key)
@@ -115,7 +115,7 @@ All requests use API key authentication via `X-API-Key` header (not JWT Bearer t
 ## Key Models (Runtime/Models.cs)
 
 - `CreateSessionRequest` — Session creation payload (`gameKey` serialized as `gameTypeConfigKey`, `customVariables` serialized as `environmentVariables` — both via `[JsonProperty]`; plus region, channel)
-- `GameSession` — Session response (status strings: `"Active"`, `"Pending"`, `"Scheduled"`, `"Not Active"`; serverType: `"Credit"`, `"Subscription"`; readiness `ready` (bool?, null on older APIs), `readyAt`, `readyDeadlineAt`)
+- `GameSession` — Session response (status strings: `"Active"`, `"Pending"`, `"Scheduled"`, `"Not Active"`; serverType: `"Credit"`, `"Subscription"`; readiness `ready` (bool?, null on older APIs), `readyAt`, `readyDeadlineAt`; `connection` (`SessionConnectionInfo`, null until the server has an address). Where players join: `GetJoinHost()` = `connection.host` else `slaveIp`; `GetJoinPort()` = `connection.primaryPort` when `connection` is present (null while not known), else `slavePort`. `slavePort` is the room port the server leased (8100+), the join port only for games launched with `{{slavePort}}`/`{{port}}`. `GetServerPort()` is `[Obsolete]` (`GetJoinPort() ?? 8100`); MST `ipAddress` stays `slaveIp`)
 - `ClaimPoolServerRequest` / `PoolClaimResponse` / `SessionConnectionInfo` — Pool claim request, answer and player connection details
 - `CreditBalance` — Balance with `GetAvailableBalance()` helper (handles frozen subscription credits)
 - `StopSessionResult` — Billing info (totalHours, totalCost)

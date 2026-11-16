@@ -16,7 +16,9 @@ namespace SplatterVault.MST
         private const int MaxConsecutiveRequestFailures = 3;
 
         /// <summary>
-        /// Get server information formatted for MST registration
+        /// Get server information formatted for MST registration. <see cref="MSTServerInfo.ipAddress"/> is the
+        /// server's IP (<see cref="GameSession.slaveIp"/>) and <see cref="MSTServerInfo.port"/> the port players join on
+        /// (<see cref="GameSession.GetJoinPort"/>; null while it is not known yet).
         /// </summary>
         public static MSTServerInfo GetMSTServerInfo(this GameSession session)
         {
@@ -26,7 +28,7 @@ namespace SplatterVault.MST
                 serverCode = session.code,
                 serverName = session.friendlyName ?? session.serverName,
                 ipAddress = session.slaveIp,
-                port = session.GetServerPort(),
+                port = session.GetJoinPort(),
                 maxPlayers = 10, // Configure based on your game
                 gameType = session.gameType,
                 mode = session.mode,
@@ -171,14 +173,19 @@ namespace SplatterVault.MST
         }
 
         /// <summary>
-        /// Get connection string for MST clients
+        /// Get the connection string for MST clients: "ip:port", the server's IP (<see cref="GameSession.slaveIp"/>)
+        /// and the port players join on (<see cref="GameSession.GetJoinPort"/>). Null until both are known.
         /// </summary>
         public static string GetConnectionString(this GameSession session)
         {
             if (string.IsNullOrEmpty(session.slaveIp))
                 return null;
 
-            return $"{session.slaveIp}:{session.GetServerPort()}";
+            int? port = session.GetJoinPort();
+            if (!port.HasValue)
+                return null;
+
+            return $"{session.slaveIp}:{port.Value}";
         }
     }
 
@@ -192,7 +199,10 @@ namespace SplatterVault.MST
         public string serverCode;
         public string serverName;
         public string ipAddress;
-        public int port;
+
+        /// <summary>The port players join on (<see cref="GameSession.GetJoinPort"/>). Null while it is not known yet.</summary>
+        public int? port;
+
         public int maxPlayers;
         public string gameType;
         public string mode;
@@ -200,11 +210,14 @@ namespace SplatterVault.MST
         public string status;
 
         /// <summary>
-        /// Get the full connection address
+        /// Get the full connection address, "ip:port". Null until both are known.
         /// </summary>
         public string GetConnectionAddress()
         {
-            return $"{ipAddress}:{port}";
+            if (string.IsNullOrEmpty(ipAddress) || !port.HasValue)
+                return null;
+
+            return $"{ipAddress}:{port.Value}";
         }
 
         /// <summary>

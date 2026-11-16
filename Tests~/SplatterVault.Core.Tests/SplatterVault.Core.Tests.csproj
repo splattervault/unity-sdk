@@ -25,6 +25,8 @@
     <Compile Include="../../Core/**/*.cs" Link="Core/%(RecursiveDir)%(Filename)%(Extension)" />
     <!-- The one engine-free Runtime file: the owner-only file modes of the encrypted-file fallback (real chmod). -->
     <Compile Include="../../Runtime/Players/SvUnixPermissions.cs" Link="Runtime/SvUnixPermissions.cs" />
+    <!-- The server client's JSON models (plain C# and Newtonsoft.Json, no UnityEngine): session helpers such as GetJoinPort. -->
+    <Compile Include="../../Runtime/Models.cs" Link="Runtime/Models.cs" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="$(TestSdkVersion)" />

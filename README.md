@@ -20,7 +20,7 @@ Or add directly to `Packages/manifest.json`:
 ```json
 {
   "dependencies": {
-    "com.splattervault.sdk": "https://github.com/splattervault/unity-sdk.git#v4.0.0-preview.1"
+    "com.splattervault.sdk": "https://github.com/splattervault/unity-sdk.git#v4.0.0-preview.2"
   }
 }
 ```
@@ -235,8 +235,8 @@ Debug.Log($"Server starting! Code: {session.code}");
 // 4. Wait until the session is Active: the server is up (throws if the session stops first)
 session = await client.WaitForServerReady(session.id);
 
-// 5. Tell players where to connect
-Debug.Log($"Connect to {session.slaveIp}:{session.GetServerPort()}");
+// 5. Tell players where to connect: the address and the port players join on
+Debug.Log($"Connect to {session.GetJoinHost()}:{session.GetJoinPort()}");
 
 // 6. Stop when done
 StopSessionResult result = await client.StopCreditSessionAsync(session.id);
@@ -413,7 +413,7 @@ var session = await client.GetSessionAsync(sessionId);
 if (session.IsPending())
     Debug.Log("Server is provisioning...");
 else if (session.IsActive() && session.IsReady())
-    Debug.Log($"Ready! Connect to {session.slaveIp}:{session.GetServerPort()}");
+    Debug.Log($"Ready! Connect to {session.GetJoinHost()}:{session.GetJoinPort()}");
 else if (session.IsActive())
     Debug.Log("Server is up, game still loading...");
 else if (session.IsStopped())
@@ -429,6 +429,16 @@ GameSession ready = await client.WaitForServerReady(sessionId, maxWaitSeconds: 3
 ```
 
 By default `WaitForServerReady` returns as soon as the session is Active. Pass `waitForGameReady: true` to also wait for the game to say it is ready for players (`ready`). Only do that for a game whose ready signal is configured for every mode it runs: a game with no ready signal never reports `ready`, and the call then returns the Active session once its ready deadline (`readyDeadlineAt`, about 5 minutes after the server is up) has passed or when `maxWaitSeconds` runs out. If the API does not report readiness at all (`ready` is null), it returns on Active.
+
+#### Where players join
+
+`GetJoinHost()` and `GetJoinPort()` give the address and the port players connect to. They read the session's `connection` details (`connection.host` and `connection.primaryPort`), and fall back to `slaveIp` and `slavePort` when the API sends no `connection`.
+
+- **Games launched with the room port** (`{{slavePort}}` or `{{port}}` in a launch argument, for example `-mstRoomPort={{slavePort}}`): players join on the room port the server gave the session (8100 and up). `GetJoinPort()` is null until the server has registered the room, which covers a server still booting and the moment right after a pool claim.
+- **Every other game** (for example Minecraft Java with `server-port={{gamePort}}`): players join on the game's configured port (25565), whatever `slavePort` says.
+- `GetJoinPort()` is also null when the game declares no port. When it is null, read the session again a little later (`GetSessionAsync`).
+- `slavePort` is still the room port the server gave the session, unchanged. Read it only if your game takes the room port.
+- `GetServerPort()` is obsolete: it returns `GetJoinPort() ?? 8100`, and the 8100 is only a guess.
 
 ### Step 6: Stop a Session
 
@@ -466,11 +476,12 @@ claim.SetIdleTimeoutMinutes(15);                // optional, 5-1440
 try
 {
     PoolClaimResponse claimed = await client.ClaimPoolServerAsync(poolId, claim);
-    var c = claimed.connection;                 // null only if the server has no address yet
-    Debug.Log($"Session {claimed.sessionId}: connect to {c?.host}:{c?.primaryPort} (code {c?.code})");
 
-    // Optional: wait for the game's ready signal (using SplatterVault.MST;)
-    await client.WaitForServerReady(claimed.sessionId, waitForGameReady: true);
+    // Wait for the game's ready signal (using SplatterVault.MST;), then read where players join.
+    // A game launched with the room port has no join port in the claim answer: its room registers after the claim.
+    GameSession session = await client.WaitForServerReady(claimed.sessionId, waitForGameReady: true);
+    int? port = session.GetJoinPort();          // null while the room's port is not known yet: read the session again
+    Debug.Log($"Session {session.id}: connect to {session.GetJoinHost()}:{port} (code {session.code})");
 }
 catch (Exception ex)
 {
@@ -483,7 +494,7 @@ catch (Exception ex)
 - **Billing:** the pool's servers are billed through the pool, not per session, so stopping a claimed session reports no cost.
 - **Stopping:** `StopCreditSessionAsync(sessionId)` (or `StopSessionAsync(session)`) ends the session and returns the server to its pool. `idleTimeoutMinutes`, `autoDestroyOnProcessExit` and `scheduledEndTime` stop it the same way.
 - **Launch arguments:** values in `customVariables` are always checked against the game's launch-argument schema on a claim, also with the game owner's key. An invalid value fails the claim with 400 and the server stays in the pool.
-- **Connection info:** `connection` holds `host`, `primaryPort`, every player port in `ports`, `code`/`password`, `connectionMode` (`direct_ip`, `launch_url`, `server_browser`, `code_only`), `launchUrl`, `showHost`/`showPassword` and the game's connection `instructions` with the live values filled in.
+- **Connection info:** `connection` holds `host`, `primaryPort` (the port players join on), every player port in `ports`, `code`/`password`, `connectionMode` (`direct_ip`, `launch_url`, `server_browser`, `code_only`), `launchUrl`, `showHost`/`showPassword` and the game's connection `instructions` with the live values filled in. For a game launched with the room port, `primaryPort` is null in the claim answer until the room has registered: wait for the session and use `GetJoinPort()` on it (see [Where players join](#where-players-join)).
 
 ## Examples
 
@@ -495,7 +506,7 @@ foreach (var s in sessions)
 {
     Debug.Log($"[{s.id}] {s.friendlyName ?? s.code} - {s.status} ({s.gameType})");
     if (s.IsActive())
-        Debug.Log($"  Connect: {s.slaveIp}:{s.GetServerPort()}");
+        Debug.Log($"  Connect: {s.GetJoinHost()}:{s.GetJoinPort()}");
 }
 ```
 
@@ -663,6 +674,8 @@ Extension methods in `SplatterVault.MST`:
 |--------|---------|-------------|
 | `WaitForServerReady(sessionId, maxWaitSeconds = 300, onStatusUpdate = null, waitForGameReady = false)` | `GameSession` | Poll until the session is Active (with `waitForGameReady`, until the game is ready); throws as soon as the session stops (see [Step 5](#step-5-monitor-session-status)) |
 | `CreateAndWaitForMSTServer(request, onProgress)` | `MSTServerInfo` | Create a credit session and wait until it is Active |
+| `session.GetMSTServerInfo()` | `MSTServerInfo` | Session details for MST: `ipAddress` is `slaveIp`, `port` (`int?`) is `GetJoinPort()`, null while not known |
+| `session.GetConnectionString()` | `string` | `"ip:port"` from `slaveIp` and `GetJoinPort()`; null until both are known |
 
 ### Models
 
@@ -694,7 +707,8 @@ Extension methods in `SplatterVault.MST`:
 | `mode` | `string` | Resolved game mode |
 | `region` | `string` | Server region |
 | `slaveIp` | `string` | Server IP address |
-| `slavePort` | `int?` | Server port |
+| `slavePort` | `int?` | The room port the server gave this session (8100 and up). Players join on it only for games launched with `{{slavePort}}` or `{{port}}`: use `GetJoinPort()` |
+| `connection` | `SessionConnectionInfo` | How players join: `host`, `primaryPort` (the port players join on), `ports`, `code`, ... Null until the server has an address |
 | `serverType` | `string` | Credit or Subscription |
 | `serverSize` | `ServerSizeInfo` | Size details with creditsPerMinute |
 | `friendlyName` | `string` | Display name |
@@ -708,7 +722,7 @@ Extension methods in `SplatterVault.MST`:
 | `readyAt` | `string` | When the game first said it was ready (ISO 8601, UTC) |
 | `readyDeadlineAt` | `string` | When the game was expected to be ready by: server up + 5 minutes (ISO 8601, UTC). Recorded only |
 
-**Helpers:** `IsActive()`, `IsPending()`, `IsScheduled()`, `IsStopped()`, `IsReady()`, `IsIdleTimedOut()`, `GetServerPort()`, `GetScheduledStartTime()`, `GetScheduledEndTime()`, `GetServerStartTime()`, `GetIdleSince()`, `GetLastPeerSampleAt()`, `GetReadyAt()`, `GetReadyDeadlineAt()`
+**Helpers:** `IsActive()`, `IsPending()`, `IsScheduled()`, `IsStopped()`, `IsReady()`, `IsIdleTimedOut()`, `GetJoinHost()`, `GetJoinPort()` (null while not known), `GetServerPort()` (obsolete: `GetJoinPort() ?? 8100`), `GetScheduledStartTime()`, `GetScheduledEndTime()`, `GetServerStartTime()`, `GetIdleSince()`, `GetLastPeerSampleAt()`, `GetReadyAt()`, `GetReadyDeadlineAt()`
 
 #### ClaimPoolServerRequest
 | Field | Type | Description |

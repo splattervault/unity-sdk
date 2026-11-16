@@ -19,8 +19,8 @@ All of it runs on your **MST master server** (a dedicated server build), or in t
 ### Runtime: `MSTExtensions.cs` (namespace `SplatterVault.MST`)
 - `WaitForServerReady()`: poll until the session is Active (with `waitForGameReady: true`, until the game says it is ready); throws as soon as the session stops
 - `CreateAndWaitForMSTServer()`: create a credit session and wait for it in one call
-- `GetMSTServerInfo()`, `MSTServerInfo.ToMSTProperties()`: session details in MST-friendly form
-- `IsReadyForMST()`, `GetConnectionString()`: small helpers
+- `GetMSTServerInfo()`, `MSTServerInfo.ToMSTProperties()`: session details in MST-friendly form (`ipAddress` is the server's IP, `port` is the port players join on: `GameSession.GetJoinPort()`, null while not known yet)
+- `IsReadyForMST()`, `GetConnectionString()`: small helpers (`GetConnectionString()` is `"ip:port"` with the join port, null until both are known)
 
 ### Sample: MST Spawner (`SplatterVaultMSTSpawner.cs`)
 A small component for the master server. `SpawnAsync(roomName)` claims a warm server from a pool (when a pool ID is set) or starts a new one, passes the master's address as launch arguments, and returns the session once it is Active. `StopAsync(session)` stops it. It uses no MST types, so it compiles with or without MST. Import it from Package Manager → SplatterVault SDK → Samples. See its `MST_MASTER_INTEGRATION.md`.

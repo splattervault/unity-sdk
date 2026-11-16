@@ -8,7 +8,7 @@
 2. Go to Window → Package Manager
 3. Click the `+` button
 4. Select "Add package from git URL"
-5. Enter: `https://github.com/splattervault/unity-sdk.git#v4.0.0-preview.1`
+5. Enter: `https://github.com/splattervault/unity-sdk.git#v4.0.0-preview.2`
 
 The Package Manager also installs the SDK's one dependency, Newtonsoft Json (`com.unity.nuget.newtonsoft-json`).
 

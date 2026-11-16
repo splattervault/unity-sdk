@@ -5,6 +5,29 @@ All notable changes to this package will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.0.0-preview.2] - 2026-11-16
+
+Where players join a session. `slavePort` is the room port the server gave the session (8100 and up), and players join on it only for games launched with `{{slavePort}}` or `{{port}}` in a launch argument. For a game that listens on a fixed port (for example Minecraft Java on 25565, Valheim on 2456), `GetServerPort()` gave the wrong port. The SDK now reads the session's connection details, which name the port players join on. This changes server and tools code only (the session models `SplatterVaultClient` answers, and `SplatterVault.MST`); the player services are unchanged.
+
+### Added
+- `GameSession.connection` (`SessionConnectionInfo`, the class pool claim answers already use): how players join, with `host`, `primaryPort` (the port players join on), `ports`, `password`, `code`, `serverName`, `connectionMode`, `launchUrl`, `showHost`, `showPassword`, `version`, `platform` and `instructions`. Null until the server has an address. Session reads (`GetSessionAsync`, and so `WaitForServerReady`) and session lists carry it.
+- `GameSession.GetJoinHost()`: `connection.host`, else `slaveIp`.
+- `GameSession.GetJoinPort()` (`int?`): `connection.primaryPort` when `connection` is present, else `slavePort`. Null while the port is not known: a game launched with the room port has none until the server has registered the room (a server still booting, or a pool server just claimed), and a game that declares no port has none. When it is null, read the session again a little later.
+
+### Changed (breaking for preview users)
+- `GameSession.GetServerPort()` is obsolete (a compiler warning, not an error) and returns `GetJoinPort() ?? 8100`. It used to return `slavePort ?? 8100`, so for a game that listens on a fixed port it now returns that port instead of the room port. Use `GetJoinPort()` and handle null.
+- `MSTServerInfo.port` is now `int?` (was `int`) and comes from `GetJoinPort()`: null while the port is not known, where it used to be 8100. `ipAddress` is still `slaveIp`. `MSTServerInfo.GetConnectionAddress()` returns null until both are known.
+- `GetConnectionString()` (`SplatterVault.MST`) uses `GetJoinPort()` and returns null while the port is not known (it used to fall back to 8100). The address is still `slaveIp`.
+
+### Documentation
+- README: new "Where players join" section (Step 5). The Quick Start, status, session list and pool claim examples use `GetJoinHost()` and `GetJoinPort()`. The pool claim example waits for the session and reads it, because for a game launched with the room port the claim answer's `primaryPort` is null until the room has registered. `slavePort` is described as the room port. The MST guides and the Basic Examples sample match.
+
+### Tests
+- `Tests~/SplatterVault.Core.Tests` now also compiles `Runtime/Models.cs` (it has no UnityEngine references) and checks the join helpers: connection details present (a fixed-port game and a room-port game), absent, null, and with a null port; a pool claim answer with a null port; and that the obsolete `GetServerPort()` still works.
+
+### Notes
+- `slaveIp` and `slavePort` are read as before. Where the API sends no `connection`, `GetJoinHost()` and `GetJoinPort()` give `slaveIp` and `slavePort`, the values `GetServerPort()` used.
+
 ## [4.0.0-preview.1] - 2026-11-15
 
 Game clients can now use SplatterVault's studio services: player sign-in and accounts, player data, and the store. Nothing here takes or sends an API key; game builds never need one. **No breaking changes for v3 users** except two security fixes (see Security): everything from 3.7 (`SplatterVaultClient` for servers and tools, with an API key) is otherwise unchanged and source-compatible, and a project that never calls the player services keeps working as it is. This is a preview: the player services' API can still change before 4.0.0.

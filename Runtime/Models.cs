@@ -238,8 +238,26 @@ namespace SplatterVault
         public string scheduledEndTime;
         public string serverStart;
         public string serverStoppedAt;
+
+        /// <summary>The server's IP address, once it is up. Use <see cref="GetJoinHost"/> for the address players join.</summary>
         public string slaveIp;
+
+        /// <summary>
+        /// The room port the server gave this session (8100 and up), once the server has registered the room.
+        /// Players join on it only for games launched with <c>{{slavePort}}</c> or <c>{{port}}</c> in a launch
+        /// argument; a game that listens on a fixed port (for example Minecraft Java on 25565) does not. Use
+        /// <see cref="GetJoinPort"/> for the port players join on.
+        /// </summary>
         public int? slavePort;
+
+        /// <summary>
+        /// How players join this session: <c>host</c>, <c>primaryPort</c> (the port players join on), every player
+        /// port, the code, the connection mode and the game's instructions. Null until the server has an address.
+        /// Use <see cref="GetJoinHost"/> and <see cref="GetJoinPort"/>, which fall back to <see cref="slaveIp"/> and
+        /// <see cref="slavePort"/> when the API sends no connection details.
+        /// </summary>
+        public SessionConnectionInfo connection;
+
         public int createdById;
         public string serverType; // "Credit", "Subscription", etc.
         public int serverSizeId;
@@ -356,7 +374,39 @@ namespace SplatterVault
         /// </summary>
         public bool IsIdleTimedOut() => stopReason == "IDLE_TIMEOUT";
 
-        public int GetServerPort() => slavePort ?? 8100;
+        /// <summary>
+        /// The address players join: <c>connection.host</c> (a host name or IP), else <see cref="slaveIp"/>.
+        /// Null while the server has no address.
+        /// </summary>
+        public string GetJoinHost()
+        {
+            if (connection != null && !string.IsNullOrEmpty(connection.host))
+                return connection.host;
+            return slaveIp;
+        }
+
+        /// <summary>
+        /// The port players join on. With connection details (<see cref="connection"/>) it is
+        /// <c>connection.primaryPort</c>: the session's room port for games launched with <c>{{slavePort}}</c> or
+        /// <c>{{port}}</c>, otherwise the game's configured port (for example 25565 for Minecraft Java). Without them
+        /// (an API that does not send them) it is <see cref="slavePort"/>.
+        /// Null while the port is not known yet: a game that joins on the room port has none until the server has
+        /// registered the room (a server still booting, or a pool server just claimed), so read the session again a
+        /// little later. Also null when the game declares no port.
+        /// </summary>
+        public int? GetJoinPort()
+        {
+            if (connection != null)
+                return connection.primaryPort;
+            return slavePort;
+        }
+
+        /// <summary>
+        /// The port players join on (<see cref="GetJoinPort"/>), or 8100 while it is not known. Kept so existing code
+        /// compiles; the 8100 is only a guess and can be wrong.
+        /// </summary>
+        [Obsolete("Use GetJoinPort(): it gives the port players join on (connection.primaryPort), and null instead of a guessed 8100 while that port is not known yet.")]
+        public int GetServerPort() => GetJoinPort() ?? 8100;
 
         private static DateTime? ParseUtcTimestamp(string value)
         {
@@ -738,13 +788,17 @@ namespace SplatterVault
         /// </summary>
         public int sessionId;
 
-        /// <summary>How players connect. Null when the server has no address yet.</summary>
+        /// <summary>
+        /// How players connect. Null when the server has no address yet. For a game that joins on the room port,
+        /// <c>primaryPort</c> is null here until the game server has registered the room: wait for the session
+        /// (WaitForServerReady in SplatterVault.MST) and use <see cref="GameSession.GetJoinPort"/> on it.
+        /// </summary>
         public SessionConnectionInfo connection;
     }
 
     /// <summary>
-    /// Player-facing connection details for a session, as the API builds them for the website's
-    /// connection card.
+    /// Player-facing connection details for a session, as the API builds them for the website's connection card.
+    /// Sent on <see cref="GameSession.connection"/> (session reads and lists) and in pool claim answers.
     /// </summary>
     [Serializable]
     public class SessionConnectionInfo
@@ -752,10 +806,19 @@ namespace SplatterVault
         /// <summary>Address players connect to (host name or IP).</summary>
         public string host;
 
-        /// <summary>The main game port: the port with id "game", else the first listed port.</summary>
+        /// <summary>
+        /// The port players join on: the session's room port (<see cref="GameSession.slavePort"/>) for games launched
+        /// with <c>{{slavePort}}</c> or <c>{{port}}</c> in a launch argument, otherwise the game's configured "game"
+        /// port (the first listed port when none has that id), for example 25565 for Minecraft Java. Null while it is
+        /// not known (a game that joins on the room port, before the server has registered the room) and when the
+        /// game declares no port.
+        /// </summary>
         public int? primaryPort;
 
-        /// <summary>Every port the game shows to players.</summary>
+        /// <summary>
+        /// Every port the game shows to players. For a game that joins on the room port, its "game" entry carries
+        /// the room port and is listed once the server has registered the room.
+        /// </summary>
         public List<SessionConnectionPort> ports;
 
         /// <summary>Password players type to join (the session code), or null.</summary>
@@ -800,6 +863,8 @@ namespace SplatterVault
         /// <summary>Port id from the game config, e.g. "game" or "query".</summary>
         public string id;
         public string label;
+
+        /// <summary>The port number players use (for the "game" entry, the same as <c>primaryPort</c>).</summary>
         public int port;
 
         /// <summary>"tcp", "udp", "both", or null when the game does not say.</summary>
